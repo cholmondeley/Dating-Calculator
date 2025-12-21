@@ -3,7 +3,7 @@ import { US_STATES, GRIP_STRENGTH_FEMALE_THRESHOLD, GRIP_STRENGTH_MALE_THRESHOLD
 
 const BUCKET_NAME = 'dcalc';
 const PARQUET_FILE = 'synthetic_population_mvp.parquet';
-export const S3_PATH = `s3://${BUCKET_NAME}/${PARQUET_FILE}`;
+export const S3_PATH = `https://sfo3.digitaloceanspaces.com/${BUCKET_NAME}/${PARQUET_FILE}`;
 
 export const generateDuckDBQuery = (filters: FilterState): string => {
   const whereClauses: string[] = [];
