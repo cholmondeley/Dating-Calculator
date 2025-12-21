@@ -1,9 +1,13 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
+import { DUCKDB_DATASET_FILE, DUCKDB_REMOTE_URL } from '../constants';
 
 // CDN bundles for DuckDB WASM
 const assetPath = (file: string) => {
     const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    if (typeof window === 'undefined') {
+        return `${base}/${file}`;
+    }
     return `${origin}${base}/${file}`;
 };
 
@@ -18,10 +22,8 @@ const LOCAL_BUNDLES = {
     },
 };
 
-const S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
-const BUCKET_NAME = 'dcalc';
-const PARQUET_FILE = 'synthetic_population_mvp.parquet';
-const PARQUET_URL = `https://${S3_ENDPOINT}/${BUCKET_NAME}/${PARQUET_FILE}`;
+const PARQUET_FILE = DUCKDB_DATASET_FILE;
+const PARQUET_URL = DUCKDB_REMOTE_URL;
 export const S3_PATH = PARQUET_FILE;
 
 
