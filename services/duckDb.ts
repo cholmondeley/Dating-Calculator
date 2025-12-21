@@ -1,14 +1,19 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 
 // CDN bundles for DuckDB WASM
+const assetPath = (file: string) => {
+    const base = import.meta.env.BASE_URL ?? '/';
+    return `${base}${file}`;
+};
+
 const LOCAL_BUNDLES = {
     mvp: {
-        mainModule: '/duckdb/duckdb-mvp.wasm',
-        mainWorker: '/duckdb/duckdb-browser-mvp.worker.js',
+        mainModule: assetPath('duckdb/duckdb-mvp.wasm'),
+        mainWorker: assetPath('duckdb/duckdb-browser-mvp.worker.js'),
     },
     eh: {
-        mainModule: '/duckdb/duckdb-eh.wasm',
-        mainWorker: '/duckdb/duckdb-browser-eh.worker.js',
+        mainModule: assetPath('duckdb/duckdb-eh.wasm'),
+        mainWorker: assetPath('duckdb/duckdb-browser-eh.worker.js'),
     },
 };
 
