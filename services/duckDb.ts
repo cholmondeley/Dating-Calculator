@@ -40,11 +40,13 @@ export const initAndConnect = async () => {
     dbInstance = db;
     connInstance = await dbInstance.connect();
 
+    console.log('[DuckDB] Running connectivity test query…');
     // Test connection by reading from the registered file
     try {
         await connInstance.query(`SELECT count(*) FROM '${S3_PATH}'`);
+        console.log('[DuckDB] Connectivity test succeeded.');
     } catch (e) {
-        console.error("S3 connection test failed:", e);
+        console.error("[DuckDB] S3 connection test failed:", e);
         throw e; // Rethrow to be caught by the UI
     }
 };
