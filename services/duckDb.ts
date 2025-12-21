@@ -32,15 +32,13 @@ export const initAndConnect = async () => {
     const db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
 
-    // Configure S3 for DigitalOcean Spaces
-    await db.run(`SET s3_region='sfo3'`);
-    await db.run(`SET s3_endpoint='${S3_ENDPOINT}'`);
-    // For public buckets, no credentials needed. If private, you'd set them here:
-    // await db.run(`SET s3_access_key_id='...'`);
-    // await db.run(`SET s3_secret_access_key='...'`);
-    
     dbInstance = db;
     connInstance = await dbInstance.connect();
+
+    // Configure S3 for DigitalOcean Spaces using the connection
+    await connInstance.query(`SET s3_region='sfo3'`);
+    await connInstance.query(`SET s3_endpoint='${S3_ENDPOINT}'`);
+    // For public buckets, no credentials needed.
 
     // Test connection by reading from the S3 file
     try {
