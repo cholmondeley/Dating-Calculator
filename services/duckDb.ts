@@ -35,6 +35,9 @@ export const initAndConnect = async () => {
     dbInstance = db;
     connInstance = await dbInstance.connect();
 
+    // DuckDB's default home directory doesn't exist in browsers; point it somewhere harmless
+    await connInstance.query("SET home_directory='/'");
+
     // DuckDB-WASM does not auto-load httpfs, so install + load explicitly before hitting S3
     try {
         await connInstance.query("INSTALL httpfs;");
