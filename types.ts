@@ -105,7 +105,7 @@ export const INITIAL_STATE: FilterState = {
     drinker: true,
   },
   excludePeopleWithKids: true, // Default to true per request
-  includeMarried: true, // Changed to true to capture full adult population (~270M)
+  includeMarried: false, // Default to excluding married people
   
   politicsView: 'broad',
   religionView: 'broad',

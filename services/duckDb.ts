@@ -61,10 +61,12 @@ const getDuckDBVersionTag = async () => {
 const configureExtensions = async (flavor: BundleFlavor) => {
     if (!connInstance || typeof window === 'undefined') return;
     const versionTag = await getDuckDBVersionTag();
-    const repoBase = `${getPublicRoot()}/duckdb/extensions/${versionTag}/${flavor}`;
+    const repoRoot = `${getPublicRoot()}/duckdb/extensions`;
+    const repoWithFlavor = `${repoRoot}/${versionTag}/${flavor}`;
 
     try {
-        await connInstance.query(`SET custom_extension_repository='${repoBase}'`);
+        console.log('[DuckDB] Setting custom extension repository to', repoRoot);
+        await connInstance.query(`SET custom_extension_repository='${repoRoot}'`);
     } catch (err) {
         console.error('[DuckDB] Unable to configure custom extension repository.', err);
         throw err;
@@ -74,7 +76,7 @@ const configureExtensions = async (flavor: BundleFlavor) => {
         try {
             await connInstance.query(`INSTALL ${extension}`);
             await connInstance.query(`LOAD ${extension}`);
-            console.log(`[DuckDB] Extension "${extension}" installed from ${repoBase}`);
+            console.log(`[DuckDB] Extension "${extension}" installed from ${repoWithFlavor}`);
         } catch (err) {
             console.error(`[DuckDB] Failed to install extension "${extension}"`, err);
             throw err;
@@ -94,6 +96,7 @@ export const initAndConnect = async () => {
     const db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
     await db.open({ allowUnsignedExtensions: true });
+    console.log('[DuckDB] Initialized bundle', bundle.mainModule, 'flavor', bundleFlavor);
 
     dbInstance = db;
     connInstance = await dbInstance.connect();
