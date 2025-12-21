@@ -1,6 +1,12 @@
 module.exports = {
-  darkMode: false,
-  content: ['./index.html', './{index,App}.tsx', './components/**/*.{ts,tsx}', './**/*.{ts,tsx}'],
+  content: [
+    './index.html',
+    './App.tsx',
+    './index.tsx',
+    './components/**/*.{ts,tsx}',
+    './services/**/*.{ts,tsx}',
+    './utils/**/*.{ts,tsx}',
+  ],
   theme: {
     extend: {},
   },
