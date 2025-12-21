@@ -36,7 +36,22 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
         const sql = generateDuckDBQuery(customFilters);
         const results = await runQuery(sql);
         if (results && results.length > 0) {
-          return computeMetricsFromRow(results[0]);
+          const row = results[0];
+          let weightedPop = Number(row.weighted_population) || 0;
+          if (globalAvgWeight < 50 && weightedPop > 0) {
+            weightedPop = weightedPop * 100;
+          }
+
+          let denom = TOTAL_ADULTS;
+          if (customFilters.selectedCBSA && row.total_cbsa_pop) {
+            denom = Number(row.total_cbsa_pop) || denom;
+          }
+
+          const pct = denom > 0 ? (weightedPop / denom) * 100 : 0;
+          return {
+            pct,
+            population: Math.round(weightedPop),
+          };
         }
         return { pct: 0, population: 0 };
       };

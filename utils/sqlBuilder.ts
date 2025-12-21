@@ -188,6 +188,9 @@ export const generateDuckDBQuery = (filters: FilterState): string => {
     }
   }
 
-  // Casting to DOUBLE is crucial to avoid BigInt issues in JS conversion
-  return `SELECT \n  count(*)::DOUBLE as count, \n  sum(PWGTP)::DOUBLE as weighted_population \nFROM '${S3_PATH}' \nWHERE \n  ${whereClauses.join('\n  AND ')}`;
+  const cbsaDenominator = filters.selectedCBSA
+    ? `,\n  (SELECT sum(PWGTP)::DOUBLE FROM '${S3_PATH}' WHERE cbsa_id = ${filters.selectedCBSA}) as total_cbsa_pop`
+    : '';
+
+  return `SELECT \n  count(*)::DOUBLE as count, \n  sum(PWGTP)::DOUBLE as weighted_population${cbsaDenominator} \nFROM '${S3_PATH}' \nWHERE \n  ${whereClauses.join('\n  AND ')}`;
 };
