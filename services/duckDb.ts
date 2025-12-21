@@ -2,8 +2,9 @@ import * as duckdb from '@duckdb/duckdb-wasm';
 
 // CDN bundles for DuckDB WASM
 const assetPath = (file: string) => {
-    const base = import.meta.env.BASE_URL ?? '/';
-    return `${base}${file}`;
+    const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}${base}/${file}`;
 };
 
 const LOCAL_BUNDLES = {
