@@ -28,7 +28,7 @@ export const initAndConnect = async () => {
     const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
     
     const worker = await duckdb.createWorker(bundle.mainWorker!);
-    const logger = new duckdb.ConsoleLogger();
+    const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.DEBUG);
     const db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
 
