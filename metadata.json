@@ -1,0 +1,5 @@
+{
+  "name": "US Dating Incidence Calculator",
+  "description": "A statistical interactive tool to calculate the probability of finding a partner based on US Census data parameters.",
+  "requestFramePermissions": []
+}
