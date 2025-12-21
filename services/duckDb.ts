@@ -35,6 +35,17 @@ export const initAndConnect = async () => {
     dbInstance = db;
     connInstance = await dbInstance.connect();
 
+    // DuckDB-WASM does not auto-load httpfs, so install + load explicitly before hitting S3
+    try {
+        await connInstance.query("INSTALL httpfs;");
+    } catch (installErr) {
+        // Ignore "already installed" errors so repeat inits don't break
+        if (!(installErr instanceof Error) || !/already installed/i.test(installErr.message)) {
+            throw installErr;
+        }
+    }
+    await connInstance.query("LOAD httpfs;");
+
     // Configure S3 for DigitalOcean Spaces using the connection
     await connInstance.query(`SET s3_region='sfo3'`);
     await connInstance.query(`SET s3_endpoint='${S3_ENDPOINT}'`);
