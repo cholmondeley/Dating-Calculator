@@ -21,7 +21,8 @@ const LOCAL_BUNDLES = {
 const S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
 const BUCKET_NAME = 'dcalc';
 const PARQUET_FILE = 'synthetic_population_mvp.parquet';
-export const S3_PATH = `https://${S3_ENDPOINT}/${BUCKET_NAME}/${PARQUET_FILE}`;
+const PARQUET_URL = `https://${S3_ENDPOINT}/${BUCKET_NAME}/${PARQUET_FILE}`;
+export const S3_PATH = PARQUET_FILE;
 
 
 let dbInstance: duckdb.AsyncDuckDB | null = null;
@@ -42,6 +43,9 @@ export const initAndConnect = async () => {
     connInstance = await dbInstance.connect();
 
     console.log('[DuckDB] Running connectivity test query…');
+    // Register remote parquet so DuckDB can stream it via fetch
+    await dbInstance.registerFileURL(PARQUET_FILE, PARQUET_URL, duckdb.DuckDBDataProtocol.HTTP, true);
+
     // Test connection by reading from the registered file
     try {
         await connInstance.query(`SELECT count(*) FROM '${S3_PATH}'`);
