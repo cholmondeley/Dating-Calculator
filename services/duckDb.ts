@@ -1,14 +1,26 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 import { DUCKDB_DATASET_FILE, DUCKDB_REMOTE_URL } from '../constants';
 
+const REQUIRED_EXTENSIONS = ['httpfs', 'parquet'] as const;
+const DUCKDB_VERSION_FALLBACK = 'v1.3.2';
+
+const getBasePath = () => (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
+const getOrigin = () => (typeof window !== 'undefined' ? window.location.origin : '');
+const getPublicRoot = () => {
+    const base = getBasePath();
+    const origin = getOrigin();
+    if (!origin) return base || '/';
+    if (!base) return origin;
+    return `${origin}${base}`;
+};
+
 // CDN bundles for DuckDB WASM
 const assetPath = (file: string) => {
-    const base = (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const base = getBasePath();
     if (typeof window === 'undefined') {
         return `${base}/${file}`;
     }
-    return `${origin}${base}/${file}`;
+    return `${getPublicRoot()}/${file}`;
 };
 
 const LOCAL_BUNDLES = {
@@ -26,23 +38,66 @@ const PARQUET_FILE = DUCKDB_DATASET_FILE;
 const PARQUET_URL = DUCKDB_REMOTE_URL;
 export const S3_PATH = PARQUET_FILE;
 
+type BundleFlavor = 'wasm_eh' | 'wasm_mvp';
 
 let dbInstance: duckdb.AsyncDuckDB | null = null;
 let connInstance: duckdb.AsyncDuckDBConnection | null = null;
+
+const getBundleFlavor = (bundle: duckdb.DuckDBBundle): BundleFlavor =>
+    bundle.mainModule?.includes('-eh') ? 'wasm_eh' : 'wasm_mvp';
+
+const getDuckDBVersionTag = async () => {
+    if (!dbInstance) return DUCKDB_VERSION_FALLBACK;
+    try {
+        const version = await dbInstance.getVersion();
+        const match = version?.match(/(\d+\.\d+\.\d+)/);
+        return match ? `v${match[1]}` : DUCKDB_VERSION_FALLBACK;
+    } catch (err) {
+        console.warn('[DuckDB] Failed to read version tag, using fallback.', err);
+        return DUCKDB_VERSION_FALLBACK;
+    }
+};
+
+const configureExtensions = async (flavor: BundleFlavor) => {
+    if (!connInstance || typeof window === 'undefined') return;
+    const versionTag = await getDuckDBVersionTag();
+    const repoBase = `${getPublicRoot()}/duckdb/extensions/${versionTag}/${flavor}`;
+
+    try {
+        await connInstance.query(`SET custom_extension_repository='${repoBase}'`);
+    } catch (err) {
+        console.error('[DuckDB] Unable to configure custom extension repository.', err);
+        throw err;
+    }
+
+    for (const extension of REQUIRED_EXTENSIONS) {
+        try {
+            await connInstance.query(`INSTALL ${extension}`);
+            await connInstance.query(`LOAD ${extension}`);
+            console.log(`[DuckDB] Extension "${extension}" installed from ${repoBase}`);
+        } catch (err) {
+            console.error(`[DuckDB] Failed to install extension "${extension}"`, err);
+            throw err;
+        }
+    }
+};
 
 export const initAndConnect = async () => {
     if (dbInstance) return;
 
     // Select the best bundle for the browser
     const bundle = await duckdb.selectBundle(LOCAL_BUNDLES);
+    const bundleFlavor = getBundleFlavor(bundle);
     
     const worker = await duckdb.createWorker(bundle.mainWorker!);
     const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.DEBUG);
     const db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    await db.open({ allowUnsignedExtensions: true });
 
     dbInstance = db;
     connInstance = await dbInstance.connect();
+    await configureExtensions(bundleFlavor);
 
     console.log('[DuckDB] Running connectivity test query…');
     // Register remote parquet so DuckDB can stream it via fetch
