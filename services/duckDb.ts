@@ -35,6 +35,9 @@ export const initAndConnect = async () => {
     dbInstance = db;
     connInstance = await dbInstance.connect();
 
+    // Point DuckDB at our public bucket for any "home directory" file lookups
+    await connInstance.query(`SET home_directory='https://${S3_ENDPOINT}/${BUCKET_NAME}/'`);
+
     // DuckDB-WASM ships with httpfs compiled-in, just load it for S3 support
     await connInstance.query("LOAD httpfs;");
 
