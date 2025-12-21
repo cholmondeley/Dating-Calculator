@@ -15,8 +15,7 @@ const JSDELIVR_BUNDLES = {
 const S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
 const BUCKET_NAME = 'dcalc';
 const PARQUET_FILE = 'synthetic_population_mvp.parquet';
-const PARQUET_URL = `https://${S3_ENDPOINT}/${BUCKET_NAME}/${PARQUET_FILE}`;
-export const S3_PATH = PARQUET_FILE;
+export const S3_PATH = `https://${S3_ENDPOINT}/${BUCKET_NAME}/${PARQUET_FILE}`;
 
 
 let dbInstance: duckdb.AsyncDuckDB | null = null;
@@ -35,9 +34,6 @@ export const initAndConnect = async () => {
 
     dbInstance = db;
     connInstance = await dbInstance.connect();
-
-    // Register the remote parquet as an HTTP-backed virtual file so DuckDB can read it directly
-    await dbInstance.registerFileURL(PARQUET_FILE, PARQUET_URL, duckdb.DuckDBDataProtocol.HTTP, true);
 
     // Test connection by reading from the registered file
     try {
