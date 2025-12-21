@@ -1,6 +1,10 @@
 import { FilterState } from '../types';
 import { US_STATES, GRIP_STRENGTH_FEMALE_THRESHOLD, GRIP_STRENGTH_MALE_THRESHOLD } from '../constants';
 
+const BUCKET_NAME = 'dcalc';
+const PARQUET_FILE = 'synthetic_population_mvp.parquet';
+export const S3_PATH = `s3://${BUCKET_NAME}/${PARQUET_FILE}`;
+
 export const generateDuckDBQuery = (filters: FilterState): string => {
   const whereClauses: string[] = [];
 
@@ -187,5 +191,5 @@ export const generateDuckDBQuery = (filters: FilterState): string => {
   }
 
   // Casting to DOUBLE is crucial to avoid BigInt issues in JS conversion
-  return `SELECT \n  count(*)::DOUBLE as count, \n  sum(PWGTP)::DOUBLE as weighted_population \nFROM 'usa_dating_data.parquet' \nWHERE \n  ${whereClauses.join('\n  AND ')}`;
+  return `SELECT \n  count(*)::DOUBLE as count, \n  sum(PWGTP)::DOUBLE as weighted_population \nFROM '${S3_PATH}' \nWHERE \n  ${whereClauses.join('\n  AND ')}`;
 };

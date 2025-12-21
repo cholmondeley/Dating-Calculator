@@ -12,11 +12,17 @@ const JSDELIVR_BUNDLES = {
     },
 };
 
+const S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
+const BUCKET_NAME = 'dcalc';
+const PARQUET_FILE = 'synthetic_population_mvp.parquet';
+export const S3_PATH = `s3://${BUCKET_NAME}/${PARQUET_FILE}`;
+
+
 let dbInstance: duckdb.AsyncDuckDB | null = null;
 let connInstance: duckdb.AsyncDuckDBConnection | null = null;
 
-export const initDuckDB = async () => {
-    if (dbInstance) return dbInstance;
+export const initAndConnect = async () => {
+    if (dbInstance) return;
 
     // Select the best bundle for the browser
     const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
@@ -26,53 +32,29 @@ export const initDuckDB = async () => {
     const db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
 
+    // Configure S3 for DigitalOcean Spaces
+    await db.run(`SET s3_region='sfo3'`);
+    await db.run(`SET s3_endpoint='${S3_ENDPOINT}'`);
+    // For public buckets, no credentials needed. If private, you'd set them here:
+    // await db.run(`SET s3_access_key_id='...'`);
+    // await db.run(`SET s3_secret_access_key='...'`);
+    
     dbInstance = db;
-    return db;
-};
+    connInstance = await dbInstance.connect();
 
-export const loadDatabaseFromUrl = async (url: string) => {
-    if (!dbInstance) await initDuckDB();
-    if (!dbInstance) throw new Error("Failed to initialize DB");
-
+    // Test connection by reading from the S3 file
     try {
-        // Register the remote URL. 
-        await dbInstance.registerFileURL(
-            'usa_dating_data.parquet', 
-            url, 
-            duckdb.DuckDBDataProtocol.HTTP, 
-            false // strict: false
-        );
-
-        // Establish connection now that the file is registered
-        if (!connInstance) {
-            connInstance = await dbInstance.connect();
-        }
-        
-        return true;
-    } catch (error) {
-        console.error("Error loading remote database:", error);
-        throw error;
-    }
-};
-
-// Simple test to ensure we can actually read from the file
-// This catches CORS errors before we say "Connected"
-export const testConnection = async () => {
-    if (!connInstance) return false;
-    try {
-        // Try to read just 1 row from a known lightweight column or metadata
-        await connInstance.query('SELECT count(*) FROM "usa_dating_data.parquet"');
-        return true;
+        await connInstance.query(`SELECT count(*) FROM '${S3_PATH}'`);
     } catch (e) {
-        console.error("Connection test failed:", e);
-        throw e;
+        console.error("S3 connection test failed:", e);
+        throw e; // Rethrow to be caught by the UI
     }
 };
+
 
 export const runQuery = async (query: string) => {
     if (!connInstance) {
-        if (!dbInstance) await initDuckDB();
-        connInstance = await dbInstance!.connect();
+        throw new Error("Database not connected");
     }
     
     // Execute query
@@ -83,14 +65,14 @@ export const runQuery = async (query: string) => {
 
 export const getDbSchema = async () => {
     if (!connInstance) return [];
-    const result = await connInstance.query(`DESCRIBE SELECT * FROM 'usa_dating_data.parquet'`);
+    const result = await connInstance.query(`DESCRIBE SELECT * FROM '${S3_PATH}'`);
     return result.toArray().map(row => row.toJSON());
 };
 
 export const getDbPreview = async () => {
     if (!connInstance) return [];
     // Limit to 5 rows to minimize data transfer on preview
-    const result = await connInstance.query(`SELECT * FROM 'usa_dating_data.parquet' LIMIT 5`);
+    const result = await connInstance.query(`SELECT * FROM '${S3_PATH}' LIMIT 5`);
     return result.toArray().map(row => row.toJSON());
 };
 
@@ -103,7 +85,7 @@ export const getDistinctCBSAs = async () => {
             cbsa_name, 
             STATE as state_fips, 
             SUM(PWGTP)::DOUBLE as pop
-        FROM 'usa_dating_data.parquet' 
+        FROM '${S3_PATH}' 
         WHERE cbsa_id IS NOT NULL 
         GROUP BY cbsa_id, cbsa_name, STATE
         ORDER BY pop DESC
@@ -115,7 +97,7 @@ export const getDistinctCBSAs = async () => {
 export const getAverageWeight = async () => {
     if (!connInstance) return 0;
     try {
-        const result = await connInstance.query(`SELECT sum(PWGTP)::DOUBLE / count(*)::DOUBLE as avg_val FROM 'usa_dating_data.parquet'`);
+        const result = await connInstance.query(`SELECT sum(PWGTP)::DOUBLE / count(*)::DOUBLE as avg_val FROM '${S3_PATH}'`);
         const row = result.toArray()[0].toJSON();
         return Number(row.avg_val) || 0;
     } catch (e) {

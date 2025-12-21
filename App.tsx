@@ -6,7 +6,7 @@ import ResultGauge from './components/ResultGauge';
 import SearchableSelect from './components/SearchableSelect';
 import DataInspector from './components/DataInspector';
 import { generateDuckDBQuery } from './utils/sqlBuilder';
-import { loadDatabaseFromUrl, getDistinctCBSAs, getAverageWeight, testConnection } from './services/duckDb';
+import { initAndConnect, getDistinctCBSAs, getAverageWeight } from './services/duckDb';
 import { MapPin, Users, ChevronDown, ChevronUp, DollarSign, Ruler, Wine, Baby, Cigarette, Check, Database, Eye, Heart, Loader2, AlertTriangle } from 'lucide-react';
 
 // Helper to format inches to Feet'Inches"
@@ -53,15 +53,8 @@ function App() {
   useEffect(() => {
     const initData = async () => {
       try {
-        const dataUrl = 'https://dcalc.sfo3.digitaloceanspaces.com/synthetic_population_mvp.parquet';
-        console.log("Streaming data from:", dataUrl);
-        
-        await loadDatabaseFromUrl(dataUrl);
-        
-        // TEST CONNECTION before claiming success
-        // This is crucial for catching CORS errors early
-        await testConnection();
-        
+        console.log("Connecting to database...");
+        await initAndConnect();
         setDbConnected(true);
         setDbError(null);
         
