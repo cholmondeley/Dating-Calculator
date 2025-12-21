@@ -1,14 +1,14 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 
 // CDN bundles for DuckDB WASM
-const JSDELIVR_BUNDLES = {
+const LOCAL_BUNDLES = {
     mvp: {
-        mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-mvp.wasm',
-        mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser-mvp.worker.js',
+        mainModule: '/duckdb/duckdb-mvp.wasm',
+        mainWorker: '/duckdb/duckdb-browser-mvp.worker.js',
     },
     eh: {
-        mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-eh.wasm',
-        mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/dist/duckdb-browser-eh.worker.js',
+        mainModule: '/duckdb/duckdb-eh.wasm',
+        mainWorker: '/duckdb/duckdb-browser-eh.worker.js',
     },
 };
 
@@ -25,7 +25,7 @@ export const initAndConnect = async () => {
     if (dbInstance) return;
 
     // Select the best bundle for the browser
-    const bundle = await duckdb.selectBundle(JSDELIVR_BUNDLES);
+    const bundle = await duckdb.selectBundle(LOCAL_BUNDLES);
     
     const worker = await duckdb.createWorker(bundle.mainWorker!);
     const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.DEBUG);
