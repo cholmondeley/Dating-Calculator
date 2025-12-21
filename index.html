@@ -4,12 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>US Dating Incidence Calculator</title>
-    <script src="/Dating-Calculator/coi-serviceworker.js"></script>
+    <script>
+      (() => {
+        const script = document.createElement('script');
+        script.src = "/Dating-Calculator/coi-serviceworker.js";
+        document.head.appendChild(script);
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <script type="module" crossorigin src="/Dating-Calculator/assets/index-D3mg01hS.js"></script>
+  <script type="module" crossorigin src="/Dating-Calculator/assets/index-SkXOCb4f.js"></script>
   <link rel="stylesheet" crossorigin href="/Dating-Calculator/assets/index-D2jhBs0E.css">
 </head>
   <body>
