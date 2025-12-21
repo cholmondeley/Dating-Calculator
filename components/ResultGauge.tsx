@@ -10,9 +10,11 @@ interface ResultGaugeProps {
   globalAvgWeight: number;
 }
 
+const TOTAL_ADULTS = 260_000_000;
+
 const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalAvgWeight }) => {
-  const [percentage, setPercentage] = useState(100);
-  const [population, setPopulation] = useState(330000000);
+  const [primaryMetrics, setPrimaryMetrics] = useState({ pct: 100, population: 330_000_000 });
+  const [nationalMetrics, setNationalMetrics] = useState<{ pct: number; population: number } | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,92 +23,93 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
       setIsAnimating(true);
       setError(null);
 
+      const computeMetricsFromRow = (row: any) => {
+        let weightedPop = Number(row.weighted_population) || 0;
+        if (globalAvgWeight < 50 && weightedPop > 0) {
+          weightedPop = weightedPop * 100;
+        }
+        const p = (weightedPop / TOTAL_ADULTS) * 100;
+        return { pct: p, population: Math.round(weightedPop) };
+      };
+
+      const runFiltersQuery = async (customFilters: FilterState) => {
+        const sql = generateDuckDBQuery(customFilters);
+        const results = await runQuery(sql);
+        if (results && results.length > 0) {
+          return computeMetricsFromRow(results[0]);
+        }
+        return { pct: 0, population: 0 };
+      };
+
+      const runSimulation = (customFilters: FilterState) => {
+        let p = 1.0;
+
+        if (customFilters.selectedCBSA) {
+          p *= 0.005;
+        } else if (customFilters.selectedState && customFilters.selectedState !== 'US') {
+          p *= 0.02;
+        }
+
+        const ageSpread = customFilters.ageRange[1] - customFilters.ageRange[0];
+        p *= (ageSpread / 100);
+        p *= 0.5; // gender split
+
+        if (customFilters.incomeRange[0] > 50) p *= 0.6;
+        if (customFilters.incomeRange[0] > 100) p *= 0.3;
+        if (customFilters.incomeRange[0] > 200) p *= 0.1;
+        if (customFilters.incomeRange[0] > 400) p *= 0.02;
+
+        if (customFilters.gender === 'Male' && customFilters.heightRange[0] > 72) p *= 0.15;
+        if (customFilters.gender === 'Male' && customFilters.heightRange[0] > 74) p *= 0.05;
+        if (customFilters.gender === 'Female' && customFilters.heightRange[0] > 67) p *= 0.15;
+
+        const selectedBodyTypes = customFilters.bodyTypes.length;
+        if (selectedBodyTypes < 3) p *= 0.8;
+        if (selectedBodyTypes < 2) p *= 0.4;
+
+        const selectedPolitics = Object.values(customFilters.politics).filter(Boolean).length;
+        const selectedReligions = Object.values(customFilters.religion).filter(Boolean).length;
+        if (selectedPolitics < 4) p *= 0.9;
+        if (selectedReligions < 4) p *= 0.9;
+
+        if (customFilters.excludePeopleWithKids) p *= 0.6;
+        if (!customFilters.smoking.smoker) p *= 0.85;
+        if (!customFilters.includeMarried) p *= 0.55;
+
+        p = Math.max(0.000001, Math.min(p, 1.0));
+        return { pct: p * 100, population: Math.round(TOTAL_ADULTS * p) };
+      };
+
       if (dbConnected) {
         try {
-          const sql = generateDuckDBQuery(filters);
-          // Debugging SQL
-          // console.log("Executing SQL:", sql);
-          
-          const results = await runQuery(sql);
-          
-          if (results && results.length > 0) {
-            const row = results[0];
-            const count = Number(row.count) || 0;
-            let weightedPop = Number(row.weighted_population) || 0;
-            
-            // LOGIC FOR 1% SAMPLE SCALING
-            if (globalAvgWeight < 50 && weightedPop > 0) {
-                // Weights seem small/unadjusted, apply 100x multiplier
-                weightedPop = weightedPop * 100;
-            }
+          const primary = await runFiltersQuery(filters);
+          setPrimaryMetrics(primary);
 
-            // Using 260M US Adults as the denominator for "Incidence" %
-            const TOTAL_ADULTS = 260_000_000; 
-            
-            const p = (weightedPop / TOTAL_ADULTS) * 100;
-            setPopulation(Math.round(weightedPop));
-            setPercentage(p);
+          if (filters.selectedCBSA) {
+            const national = await runFiltersQuery({ ...filters, selectedCBSA: '' });
+            setNationalMetrics(national);
           } else {
-             setPopulation(0);
-             setPercentage(0);
+            setNationalMetrics(null);
           }
         } catch (err: any) {
           console.error("DB Query failed", err);
-          // Show the actual error message to help debugging
           setError(err.message || "Query Failed. Check console.");
+          setNationalMetrics(null);
         } finally {
           setIsAnimating(false);
         }
       } else {
-        // --- MOCK SIMULATION LOGIC ---
         setTimeout(() => {
-          let p = 1.0;
+          const simulatedPrimary = runSimulation(filters);
+          setPrimaryMetrics(simulatedPrimary);
 
-          // Geo
           if (filters.selectedCBSA) {
-            p *= 0.005; 
-          } else if (filters.selectedState && filters.selectedState !== 'US') {
-            p *= 0.02; 
+            const nationalSim = runSimulation({ ...filters, selectedCBSA: '' });
+            setNationalMetrics(nationalSim);
+          } else {
+            setNationalMetrics(null);
           }
 
-          // Age
-          const ageSpread = filters.ageRange[1] - filters.ageRange[0];
-          p *= (ageSpread / 100); 
-
-          // Gender
-          p *= 0.5; 
-
-          // Income
-          if (filters.incomeRange[0] > 50) p *= 0.6;
-          if (filters.incomeRange[0] > 100) p *= 0.3;
-          if (filters.incomeRange[0] > 200) p *= 0.1;
-          if (filters.incomeRange[0] > 400) p *= 0.02;
-
-          // Height
-          if (filters.gender === 'Male' && filters.heightRange[0] > 72) p *= 0.15;
-          if (filters.gender === 'Male' && filters.heightRange[0] > 74) p *= 0.05;
-          if (filters.gender === 'Female' && filters.heightRange[0] > 67) p *= 0.15;
-
-          // Body Type
-          const selectedBodyTypes = filters.bodyTypes.length;
-          if (selectedBodyTypes < 3) p *= 0.8;
-          if (selectedBodyTypes < 2) p *= 0.4;
-
-          // Politics & Religion
-          const selectedPolitics = Object.values(filters.politics).filter(Boolean).length;
-          const selectedReligions = Object.values(filters.religion).filter(Boolean).length;
-          if (selectedPolitics < 4) p *= 0.9;
-          if (selectedReligions < 4) p *= 0.9;
-
-          // Dealbreakers
-          if (filters.excludePeopleWithKids) p *= 0.6; 
-          if (!filters.smoking.smoker) p *= 0.85; 
-          if (!filters.includeMarried) p *= 0.55;
-
-          p = Math.max(0.000001, Math.min(p, 1.0));
-          
-          setPercentage(p * 100);
-          setPopulation(Math.round(260000000 * p));
           setIsAnimating(false);
         }, 400);
       }
@@ -123,7 +126,10 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
     return 'text-rose-600';
   };
 
-  const colorClass = getColor(percentage);
+  const hasCBSA = Boolean(filters.selectedCBSA);
+  const colorClass = getColor(primaryMetrics.pct);
+  const formatPopulation = (value: number) =>
+    new Intl.NumberFormat('en-US', { notation: "compact", compactDisplay: "short" }).format(value);
 
   return (
     <div className="sticky top-20 z-30 bg-white rounded-3xl shadow-xl p-8 text-center border border-slate-100 relative overflow-hidden">
@@ -142,12 +148,34 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
         </div>
         
         <div className={`transition-opacity duration-300 ${isAnimating ? 'opacity-50 blur-sm' : 'opacity-100'}`}>
-          <div className={`text-6xl md:text-7xl font-bold tracking-tight mb-2 ${colorClass}`}>
-            {percentage.toFixed(1)}%
-          </div>
-          <div className="text-slate-500 font-medium text-lg">
-            ~{new Intl.NumberFormat('en-US', { notation: "compact", compactDisplay: "short" }).format(population)} people
-          </div>
+          {hasCBSA && nationalMetrics ? (
+            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 text-left">
+              <div className="md:w-1/3">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">National Benchmark</p>
+                <div className="text-2xl font-bold text-slate-600">{nationalMetrics.pct.toFixed(1)}%</div>
+                <div className="text-slate-400 text-sm">~{formatPopulation(nationalMetrics.population)} people nationwide</div>
+              </div>
+
+              <div className="flex-1 text-center md:text-right">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">This Metro</p>
+                <div className={`text-6xl md:text-7xl font-bold tracking-tight mb-2 ${colorClass}`}>
+                  {primaryMetrics.pct.toFixed(1)}%
+                </div>
+                <div className="text-slate-500 font-medium">
+                  ~{formatPopulation(primaryMetrics.population)} people in this CBSA
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className={`text-6xl md:text-7xl font-bold tracking-tight mb-2 ${colorClass}`}>
+                {primaryMetrics.pct.toFixed(1)}%
+              </div>
+              <div className="text-slate-500 font-medium text-lg">
+                ~{formatPopulation(primaryMetrics.population)} people
+              </div>
+            </>
+          )}
         </div>
 
         {error && (
@@ -157,7 +185,7 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
             </div>
         )}
 
-        {percentage < 0.01 && !isAnimating && !error && (
+        {primaryMetrics.pct < 0.01 && !isAnimating && !error && (
           <div className="mt-4 inline-block bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
             🦄 Unicorn Territory
           </div>
