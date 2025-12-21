@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { FilterState } from '../types';
 import { runQuery } from '../services/duckDb';
 import { generateDuckDBQuery } from '../utils/sqlBuilder';
@@ -17,21 +17,10 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
   const [nationalMetrics, setNationalMetrics] = useState<{ pct: number; population: number } | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsAnimating(true);
-      setError(null);
-
-      const computeMetricsFromRow = (row: any) => {
-        let weightedPop = Number(row.weighted_population) || 0;
-        if (globalAvgWeight < 50 && weightedPop > 0) {
-          weightedPop = weightedPop * 100;
-        }
-        const p = (weightedPop / TOTAL_ADULTS) * 100;
-        return { pct: p, population: Math.round(weightedPop) };
-      };
-
+    const fetchData = async (requestId: number) => {
       const runFiltersQuery = async (customFilters: FilterState) => {
         const sql = generateDuckDBQuery(customFilters);
         const results = await runQuery(sql);
@@ -98,39 +87,55 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
       if (dbConnected) {
         try {
           const primary = await runFiltersQuery(filters);
+          if (requestId !== requestIdRef.current) return;
           setPrimaryMetrics(primary);
 
           if (filters.selectedCBSA) {
             const national = await runFiltersQuery({ ...filters, selectedCBSA: '', selectedState: 'US' });
+            if (requestId !== requestIdRef.current) return;
             setNationalMetrics(national);
           } else {
             setNationalMetrics(null);
           }
         } catch (err: any) {
           console.error("DB Query failed", err);
-          setError(err.message || "Query Failed. Check console.");
-          setNationalMetrics(null);
-        } finally {
-          setIsAnimating(false);
-        }
-      } else {
-        setTimeout(() => {
-          const simulatedPrimary = runSimulation(filters);
-          setPrimaryMetrics(simulatedPrimary);
-
-          if (filters.selectedCBSA) {
-            const nationalSim = runSimulation({ ...filters, selectedCBSA: '', selectedState: 'US' });
-            setNationalMetrics(nationalSim);
-          } else {
+          if (requestId === requestIdRef.current) {
+            setError(err.message || "Query Failed. Check console.");
             setNationalMetrics(null);
           }
+        } finally {
+          if (requestId === requestIdRef.current) {
+            setIsAnimating(false);
+          }
+        }
+      } else {
+        const simulatedPrimary = runSimulation(filters);
+        if (requestId !== requestIdRef.current) return;
+        setPrimaryMetrics(simulatedPrimary);
 
+        if (filters.selectedCBSA) {
+          const nationalSim = runSimulation({ ...filters, selectedCBSA: '', selectedState: 'US' });
+          if (requestId !== requestIdRef.current) return;
+          setNationalMetrics(nationalSim);
+        } else {
+          setNationalMetrics(null);
+        }
+        if (requestId === requestIdRef.current) {
           setIsAnimating(false);
-        }, 400);
+        }
       }
     };
 
-    fetchData();
+    const timeoutId = window.setTimeout(() => {
+      const currentRequest = ++requestIdRef.current;
+      setIsAnimating(true);
+      setError(null);
+      fetchData(currentRequest);
+    }, 350);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [filters, dbConnected, globalAvgWeight]);
 
   // Color interpolation based on scarcity
