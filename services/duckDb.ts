@@ -35,22 +35,7 @@ export const initAndConnect = async () => {
     dbInstance = db;
     connInstance = await dbInstance.connect();
 
-    // DuckDB's default home directory doesn't exist in browsers; point it somewhere harmless
-    // Use the worker origin so DuckDB can resolve relative paths and httpfs assets
-    const originPath = typeof window !== 'undefined'
-        ? new URL('./', window.location.href).pathname || '/'
-        : '/';
-    await connInstance.query(`SET home_directory='${originPath}'`);
-
-    // DuckDB-WASM does not auto-load httpfs, so install + load explicitly before hitting S3
-    try {
-        await connInstance.query("INSTALL httpfs;");
-    } catch (installErr) {
-        // Ignore "already installed" errors so repeat inits don't break
-        if (!(installErr instanceof Error) || !/already installed/i.test(installErr.message)) {
-            throw installErr;
-        }
-    }
+    // DuckDB-WASM ships with httpfs compiled-in, just load it for S3 support
     await connInstance.query("LOAD httpfs;");
 
     // Configure S3 for DigitalOcean Spaces using the connection
