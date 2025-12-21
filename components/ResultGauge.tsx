@@ -101,7 +101,7 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
           setPrimaryMetrics(primary);
 
           if (filters.selectedCBSA) {
-            const national = await runFiltersQuery({ ...filters, selectedCBSA: '' });
+            const national = await runFiltersQuery({ ...filters, selectedCBSA: '', selectedState: 'US' });
             setNationalMetrics(national);
           } else {
             setNationalMetrics(null);
@@ -119,7 +119,7 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
           setPrimaryMetrics(simulatedPrimary);
 
           if (filters.selectedCBSA) {
-            const nationalSim = runSimulation({ ...filters, selectedCBSA: '' });
+            const nationalSim = runSimulation({ ...filters, selectedCBSA: '', selectedState: 'US' });
             setNationalMetrics(nationalSim);
           } else {
             setNationalMetrics(null);
