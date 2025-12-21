@@ -15,7 +15,8 @@ const JSDELIVR_BUNDLES = {
 const S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
 const BUCKET_NAME = 'dcalc';
 const PARQUET_FILE = 'synthetic_population_mvp.parquet';
-export const S3_PATH = `s3://${BUCKET_NAME}/${PARQUET_FILE}`;
+const PARQUET_URL = `https://${S3_ENDPOINT}/${BUCKET_NAME}/${PARQUET_FILE}`;
+export const S3_PATH = PARQUET_FILE;
 
 
 let dbInstance: duckdb.AsyncDuckDB | null = null;
@@ -35,19 +36,10 @@ export const initAndConnect = async () => {
     dbInstance = db;
     connInstance = await dbInstance.connect();
 
-    // Point DuckDB at our public bucket for any "home directory" file lookups
-    await connInstance.query(`SET home_directory='https://${S3_ENDPOINT}/${BUCKET_NAME}/'`);
+    // Register the remote parquet as an HTTP-backed virtual file so DuckDB can read it directly
+    await dbInstance.registerFileURL(PARQUET_FILE, PARQUET_URL, duckdb.DuckDBDataProtocol.HTTP, true);
 
-    // DuckDB-WASM bundles httpfs, but we still need to install + load explicitly
-    await connInstance.query("INSTALL httpfs;");
-    await connInstance.query("LOAD httpfs;");
-
-    // Configure S3 for DigitalOcean Spaces using the connection
-    await connInstance.query(`SET s3_region='sfo3'`);
-    await connInstance.query(`SET s3_endpoint='${S3_ENDPOINT}'`);
-    // For public buckets, no credentials needed.
-
-    // Test connection by reading from the S3 file
+    // Test connection by reading from the registered file
     try {
         await connInstance.query(`SELECT count(*) FROM '${S3_PATH}'`);
     } catch (e) {
