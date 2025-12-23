@@ -148,11 +148,11 @@ export const getDistinctCBSAs = async () => {
         SELECT 
             cbsa_id, 
             cbsa_name, 
-            STATE as state_fips, 
+            state as state_fips, 
             SUM(PWGTP)::DOUBLE as pop
         FROM '${S3_PATH}' 
         WHERE cbsa_id IS NOT NULL 
-        GROUP BY cbsa_id, cbsa_name, STATE
+        GROUP BY cbsa_id, cbsa_name, state
         ORDER BY pop DESC
     `;
     const result = await connInstance.query(query);

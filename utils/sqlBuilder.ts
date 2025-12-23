@@ -1,5 +1,5 @@
 import { FilterState } from '../types';
-import { US_STATES, GRIP_STRENGTH_FEMALE_THRESHOLD, GRIP_STRENGTH_MALE_THRESHOLD, DUCKDB_DATASET_FILE } from '../constants';
+import { US_STATES, DUCKDB_DATASET_FILE, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from '../constants';
 
 export const S3_PATH = DUCKDB_DATASET_FILE;
 
@@ -16,20 +16,20 @@ export const generateDuckDBQuery = (filters: FilterState): string => {
     // Find FIPS code from constants
     const stateObj = US_STATES.find(s => s.abbr === filters.selectedState);
     if (stateObj && stateObj.fips) {
-      whereClauses.push(`STATE = ${stateObj.fips}`);
+      whereClauses.push(`state = ${stateObj.fips}`);
     }
   }
 
   // 2. Demographics
   const sexCode = filters.gender === 'Male' ? 1 : 2;
-  whereClauses.push(`SEX = ${sexCode}`);
+  whereClauses.push(`sex = ${sexCode}`);
   
-  whereClauses.push(`AGEP BETWEEN ${filters.ageRange[0]} AND ${filters.ageRange[1]}`);
+  whereClauses.push(`age BETWEEN ${filters.ageRange[0]} AND ${filters.ageRange[1]}`);
 
   // MARITAL STATUS: 1 = Married. 
   // If NOT including married people, exclude MAR=1
   if (!filters.includeMarried) {
-    whereClauses.push(`MAR != 1`);
+    whereClauses.push(`married != 1`);
   }
 
   // 3. Socioeconomic
@@ -64,52 +64,19 @@ export const generateDuckDBQuery = (filters: FilterState): string => {
     whereClauses.push(`height_inches BETWEEN ${filters.heightRange[0]} AND ${filters.heightRange[1]}`);
   }
   
-  // Body Types
-  const types = filters.bodyTypes;
-  const currentBodyTypes = filters.gender === 'Female' ? ['Thin', 'Fit', 'Curvy'] : ['Thin', 'Fit', 'Big'];
-  const allBodyTypesSelected = currentBodyTypes.every(t => types.includes(t));
+  // Physical Flags
+  const { physicalFlags } = filters;
+  if (physicalFlags.thin) whereClauses.push(`thin = TRUE`);
+  if (physicalFlags.fit) whereClauses.push(`fit = TRUE`);
+  if (physicalFlags.abs) whereClauses.push(`abs = TRUE`);
+  if (physicalFlags.overweight) whereClauses.push(`overweight = TRUE`);
+  if (physicalFlags.obese) whereClauses.push(`obese = TRUE`);
 
-  if (!allBodyTypesSelected) {
-    const bodyConditions: string[] = [];
-    
-    // NOTE: This logic assumes 'grip_strength' (kg) column exists in the parquet file.
-    if (filters.gender === 'Female') {
-        // Female Logic
-        if (types.includes('Thin')) {
-            // BMI <= 22
-            bodyConditions.push("(bmi <= 22)");
-        }
-        if (types.includes('Fit')) {
-            // BMI <= 25 AND High Grip
-            bodyConditions.push(`(bmi <= 25 AND grip_strength >= ${GRIP_STRENGTH_FEMALE_THRESHOLD})`);
-        }
-        if (types.includes('Curvy')) {
-            // Everyone else: NOT Thin AND NOT Fit
-            // i.e. BMI > 25 OR (BMI > 22 AND Low Grip)
-            bodyConditions.push(`(bmi > 25 OR (bmi > 22 AND grip_strength < ${GRIP_STRENGTH_FEMALE_THRESHOLD}))`);
-        }
-    } else {
-        // Male Logic
-        if (types.includes('Thin')) {
-            // BMI <= 25
-            bodyConditions.push("(bmi <= 25)");
-        }
-        if (types.includes('Fit')) {
-             // BMI <= 27 AND High Grip
-            bodyConditions.push(`(bmi <= 27 AND grip_strength >= ${GRIP_STRENGTH_MALE_THRESHOLD})`);
-        }
-        if (types.includes('Big')) {
-             // Everyone else: NOT Thin AND NOT Fit
-             // i.e. BMI > 27 OR (BMI > 25 AND Low Grip)
-            bodyConditions.push(`(bmi > 27 OR (bmi > 25 AND grip_strength < ${GRIP_STRENGTH_MALE_THRESHOLD}))`);
-        }
-    }
-    
-    if (bodyConditions.length > 0) {
-      whereClauses.push(`(${bodyConditions.join(' OR ')})`);
-    } else {
-      whereClauses.push("1=0"); 
-    }
+  if (filters.waistRange[0] > MIN_WAIST || filters.waistRange[1] < MAX_WAIST) {
+    whereClauses.push(`waist_circumference BETWEEN ${filters.waistRange[0]} AND ${filters.waistRange[1]}`);
+  }
+  if (filters.rfmRange[0] > MIN_RFM || filters.rfmRange[1] < MAX_RFM) {
+    whereClauses.push(`rfm BETWEEN ${filters.rfmRange[0]} AND ${filters.rfmRange[1]}`);
   }
 
   // 5. Race

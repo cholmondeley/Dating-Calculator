@@ -24,7 +24,7 @@ const MANUAL_BUNDLES = {
 };
 
 const S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
-const S3_PATH = 's3://dcalc/synthetic_population_mvp.parquet';
+const S3_PATH = 's3://dcalc/synthetic_population_mvp_dec22.parquet';
 
 async function main() {
   const bundle = await duckdb.selectBundle(MANUAL_BUNDLES);

@@ -1,4 +1,4 @@
-import { POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS } from "./constants";
+import { POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from "./constants";
 
 export type Gender = 'Male' | 'Female';
 
@@ -27,7 +27,15 @@ export interface FilterState {
 
   // Advanced - Physical
   heightRange: [number, number]; // Inches
-  bodyTypes: string[]; // Strings because they depend on gender
+  physicalFlags: {
+    thin: boolean;
+    fit: boolean;
+    abs: boolean;
+    overweight: boolean;
+    obese: boolean;
+  };
+  waistRange: [number, number];
+  rfmRange: [number, number];
 
   // Advanced - Background
   race: {
@@ -88,7 +96,15 @@ export const INITIAL_STATE: FilterState = {
     gradDegree: true,
   },
   heightRange: [66, 90], // Default for Male: 5'6" to 7'6"
-  bodyTypes: ['Thin', 'Fit', 'Curvy', 'Big'],
+  physicalFlags: {
+    thin: false,
+    fit: false,
+    abs: false,
+    overweight: false,
+    obese: false,
+  },
+  waistRange: [MIN_WAIST, MAX_WAIST],
+  rfmRange: [MIN_RFM, MAX_RFM],
   race: {
     white: true,
     black: true,

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { INITIAL_STATE, FilterState, Gender } from './types';
-import { US_STATES, CBSA_DATA, BODY_TYPES_FEMALE, BODY_TYPES_MALE, MIN_AGE, MAX_AGE, MIN_INCOME, MAX_INCOME, MIN_HEIGHT, MAX_HEIGHT, POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS } from './constants';
+import { INITIAL_STATE, FilterState, Gender, BodyType } from './types';
+import { US_STATES, CBSA_DATA, BODY_TYPES_FEMALE, BODY_TYPES_MALE, MIN_AGE, MAX_AGE, MIN_INCOME, MAX_INCOME, MIN_HEIGHT, MAX_HEIGHT, POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from './constants';
 import RangeSlider from './components/RangeSlider';
 import ResultGauge from './components/ResultGauge';
 import SearchableSelect from './components/SearchableSelect';
@@ -14,6 +14,13 @@ const formatHeight = (inches: number) => {
   const ft = Math.floor(inches / 12);
   const inc = inches % 12;
   return `${ft}'${inc}"`;
+};
+
+const BODY_TYPE_FLAG_MAP: Record<BodyType, keyof FilterState['physicalFlags']> = {
+  Thin: 'thin',
+  Fit: 'fit',
+  Curvy: 'overweight',
+  Big: 'obese',
 };
 
 // Helper for labels
@@ -38,6 +45,7 @@ function App() {
   const [state, setState] = useState<FilterState>(INITIAL_STATE);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showSql, setShowSql] = useState(false);
+  const [showPhysicalDetails, setShowPhysicalDetails] = useState(false);
   
   // DB State
   const [dbConnected, setDbConnected] = useState(false);
@@ -88,15 +96,24 @@ function App() {
     setState(prev => ({ ...prev, ...updates }));
   }, []);
 
-  const toggleBodyType = (type: string) => {
-    setState(prev => {
-      const current = prev.bodyTypes;
-      if (current.includes(type)) {
-        return { ...prev, bodyTypes: current.filter(t => t !== type) };
-      } else {
-        return { ...prev, bodyTypes: [...current, type] };
-      }
+  const toggleBodyTypeFlag = (type: BodyType) => {
+    const flag = BODY_TYPE_FLAG_MAP[type];
+    const nextVal = !state.physicalFlags[flag];
+    updateState({ physicalFlags: { ...state.physicalFlags, [flag]: nextVal } });
+  };
+
+  const setPhysicalFlag = (flag: keyof FilterState['physicalFlags'], checked: boolean) => {
+    updateState({ physicalFlags: { ...state.physicalFlags, [flag]: checked } });
+  };
+
+  const applySixesPreset = () => {
+    updateState({
+      gender: 'Male',
+      heightRange: [Math.max(72, state.heightRange[0]), state.heightRange[1]],
+      incomeRange: [Math.max(100, state.incomeRange[0]), state.incomeRange[1]],
+      physicalFlags: { ...state.physicalFlags, abs: true },
     });
+    if (!showAdvanced) setShowAdvanced(true);
   };
 
   const togglePoliticsDetailed = (opt: string) => {
@@ -116,6 +133,7 @@ function App() {
   };
 
   const currentBodyTypes = state.gender === 'Female' ? BODY_TYPES_FEMALE : BODY_TYPES_MALE;
+  const isBodyTypeActive = (type: BodyType) => state.physicalFlags[BODY_TYPE_FLAG_MAP[type]];
 
   const religionOptions = [
     { key: 'christian', label: 'Christian' },
@@ -291,7 +309,6 @@ function App() {
 
                         updateState({ 
                             gender: g,
-                            bodyTypes: g === 'Female' ? BODY_TYPES_FEMALE : BODY_TYPES_MALE,
                             heightRange: newHeightRange
                         });
                     }}
@@ -380,14 +397,23 @@ function App() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-3">Body Type</label>
+                    <div className="flex items-center justify-between mb-3">
+                      <label className="text-sm font-semibold text-slate-700">Body Type</label>
+                      <button
+                        type="button"
+                        onClick={applySixesPreset}
+                        className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                      >
+                        6′ / $100K / 6-Pack
+                      </button>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {currentBodyTypes.map(type => (
                         <button
                           key={type}
-                          onClick={() => toggleBodyType(type)}
+                          onClick={() => toggleBodyTypeFlag(type as BodyType)}
                           className={`px-4 py-2 rounded-full text-sm font-medium border transition-all ${
-                            state.bodyTypes.includes(type)
+                            isBodyTypeActive(type as BodyType)
                               ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
                               : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
                           }`}
@@ -396,6 +422,67 @@ function App() {
                         </button>
                       ))}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPhysicalDetails(prev => !prev)}
+                      className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                    >
+                      {showPhysicalDetails ? 'Hide detailed physical filters' : 'Detailed physical filters'}
+                      {showPhysicalDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+
+                    {showPhysicalDetails && (
+                      <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-5">
+                        <div>
+                          <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Body Flags</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              { key: 'thin', label: 'Thin' },
+                              { key: 'fit', label: 'Fit' },
+                              { key: 'abs', label: 'Abs' },
+                              { key: 'overweight', label: 'Overweight' },
+                              { key: 'obese', label: 'Obese' },
+                            ].map(({ key, label }) => (
+                              <label key={key} className="flex items-center gap-2 text-sm text-slate-600">
+                                <input
+                                  type="checkbox"
+                                  checked={state.physicalFlags[key as keyof FilterState['physicalFlags']]}
+                                  onChange={(e) => setPhysicalFlag(key as keyof FilterState['physicalFlags'], e.target.checked)}
+                                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">
+                            Waist Circumference (inches)
+                          </label>
+                          <RangeSlider
+                            min={MIN_WAIST}
+                            max={MAX_WAIST}
+                            value={state.waistRange}
+                            onChange={(v) => updateState({ waistRange: v })}
+                            formatLabel={(val) => `${val}"`}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">
+                            Relative Fat Mass (RFM)
+                          </label>
+                          <RangeSlider
+                            min={MIN_RFM}
+                            max={MAX_RFM}
+                            value={state.rfmRange}
+                            onChange={(v) => updateState({ rfmRange: v })}
+                            formatLabel={(val) => `${val}%`}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                    <div>

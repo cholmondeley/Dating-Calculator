@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FilterState } from '../types';
+import { MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from '../constants';
 import { runQuery } from '../services/duckDb';
 import { generateDuckDBQuery } from '../utils/sqlBuilder';
 import { Database, AlertCircle } from 'lucide-react';
@@ -67,9 +68,19 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
         if (customFilters.gender === 'Male' && customFilters.heightRange[0] > 74) p *= 0.05;
         if (customFilters.gender === 'Female' && customFilters.heightRange[0] > 67) p *= 0.15;
 
-        const selectedBodyTypes = customFilters.bodyTypes.length;
-        if (selectedBodyTypes < 3) p *= 0.8;
-        if (selectedBodyTypes < 2) p *= 0.4;
+        if (customFilters.physicalFlags.thin) p *= 0.6;
+        if (customFilters.physicalFlags.fit) p *= 0.7;
+        if (customFilters.physicalFlags.abs) p *= 0.5;
+        if (customFilters.physicalFlags.overweight) p *= 0.85;
+        if (customFilters.physicalFlags.obese) p *= 0.6;
+
+        const waistSpan = customFilters.waistRange[1] - customFilters.waistRange[0];
+        const waistRatio = Math.max(0.2, waistSpan / (MAX_WAIST - MIN_WAIST));
+        p *= waistRatio;
+
+        const rfmSpan = customFilters.rfmRange[1] - customFilters.rfmRange[0];
+        const rfmRatio = Math.max(0.3, rfmSpan / (MAX_RFM - MIN_RFM));
+        p *= rfmRatio;
 
         const selectedPolitics = Object.values(customFilters.politics).filter(Boolean).length;
         const selectedReligions = Object.values(customFilters.religion).filter(Boolean).length;

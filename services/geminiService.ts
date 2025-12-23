@@ -23,7 +23,12 @@ export const getGeminiInsight = async (filters: FilterState): Promise<string> =>
       - Income: $${filters.incomeRange[0]}k - $${filters.incomeRange[1]}k
       - Height: ${Math.floor(filters.heightRange[0]/12)}'${filters.heightRange[0]%12}" - ${Math.floor(filters.heightRange[1]/12)}'${filters.heightRange[1]%12}"
       - Needs Degree: ${!filters.education.noDegree}
-      - Body Type: ${filters.bodyTypes.join(', ')}
+      - Physical Flags: ${
+        Object.entries(filters.physicalFlags)
+          .filter(([_, enabled]) => enabled)
+          .map(([label]) => label)
+          .join(', ') || 'Any'
+      }
       - No Kids: ${filters.excludePeopleWithKids}
       - Politics: ${Object.keys(filters.politics).filter(k => filters.politics[k as keyof typeof filters.politics]).join(', ')}
       - Religion: ${Object.keys(filters.religion).filter(k => filters.religion[k as keyof typeof filters.religion]).join(', ')}

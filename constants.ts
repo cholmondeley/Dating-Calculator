@@ -2,8 +2,12 @@
 
 export const DUCKDB_S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
 export const DUCKDB_BUCKET_NAME = 'dcalc';
-export const DUCKDB_DATASET_FILE = 'synthetic_population_mvp.parquet';
+export const DUCKDB_DATASET_FILE = 'synthetic_population_mvp_dec22.parquet';
 export const DUCKDB_REMOTE_URL = `https://${DUCKDB_S3_ENDPOINT}/${DUCKDB_BUCKET_NAME}/${DUCKDB_DATASET_FILE}`;
+export const MIN_WAIST = 22;
+export const MAX_WAIST = 90;
+export const MIN_RFM = 10;
+export const MAX_RFM = 65;
 
 export const US_STATES = [
   { abbr: "US", name: "National", fips: 0 },
