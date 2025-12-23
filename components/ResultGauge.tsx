@@ -68,11 +68,15 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
         if (customFilters.gender === 'Male' && customFilters.heightRange[0] > 74) p *= 0.05;
         if (customFilters.gender === 'Female' && customFilters.heightRange[0] > 67) p *= 0.15;
 
-        if (customFilters.physicalFlags.thin) p *= 0.6;
-        if (customFilters.physicalFlags.fit) p *= 0.7;
-        if (customFilters.physicalFlags.abs) p *= 0.5;
-        if (customFilters.physicalFlags.overweight) p *= 0.85;
-        if (customFilters.physicalFlags.obese) p *= 0.6;
+        const bodyTypeFlags: Array<keyof FilterState['physicalFlags']> = ['thin', 'fit', 'overweight', 'obese'];
+        const enabledBodyFlags = bodyTypeFlags.filter(flag => customFilters.physicalFlags[flag]);
+        if (enabledBodyFlags.length === 0) {
+          p *= 0.000001;
+        } else if (enabledBodyFlags.length < bodyTypeFlags.length) {
+          p *= enabledBodyFlags.length / bodyTypeFlags.length;
+        }
+
+        if (customFilters.physicalFlags.abs) p *= 0.4;
 
         const waistSpan = customFilters.waistRange[1] - customFilters.waistRange[0];
         const waistRatio = Math.max(0.2, waistSpan / (MAX_WAIST - MIN_WAIST));

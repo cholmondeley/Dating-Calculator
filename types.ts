@@ -97,11 +97,11 @@ export const INITIAL_STATE: FilterState = {
   },
   heightRange: [66, 90], // Default for Male: 5'6" to 7'6"
   physicalFlags: {
-    thin: false,
-    fit: false,
+    thin: true,
+    fit: true,
     abs: false,
-    overweight: false,
-    obese: false,
+    overweight: true,
+    obese: true,
   },
   waistRange: [MIN_WAIST, MAX_WAIST],
   rfmRange: [MIN_RFM, MAX_RFM],

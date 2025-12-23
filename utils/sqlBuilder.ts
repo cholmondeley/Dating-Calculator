@@ -66,11 +66,18 @@ export const generateDuckDBQuery = (filters: FilterState): string => {
   
   // Physical Flags
   const { physicalFlags } = filters;
-  if (physicalFlags.thin) whereClauses.push(`thin = TRUE`);
-  if (physicalFlags.fit) whereClauses.push(`fit = TRUE`);
-  if (physicalFlags.abs) whereClauses.push(`abs = TRUE`);
-  if (physicalFlags.overweight) whereClauses.push(`overweight = TRUE`);
-  if (physicalFlags.obese) whereClauses.push(`obese = TRUE`);
+  const bodyTypeFlags: Array<keyof FilterState['physicalFlags']> = ['thin', 'fit', 'overweight', 'obese'];
+  const enabledBodyFlags = bodyTypeFlags.filter(flag => physicalFlags[flag]);
+
+  if (enabledBodyFlags.length === 0) {
+    whereClauses.push('1=0');
+  } else if (enabledBodyFlags.length < bodyTypeFlags.length) {
+    whereClauses.push(`(${enabledBodyFlags.map(flag => `${flag} = TRUE`).join(' OR ')})`);
+  }
+
+  if (physicalFlags.abs) {
+    whereClauses.push('abs = TRUE');
+  }
 
   if (filters.waistRange[0] > MIN_WAIST || filters.waistRange[1] < MAX_WAIST) {
     whereClauses.push(`waist_circumference BETWEEN ${filters.waistRange[0]} AND ${filters.waistRange[1]}`);

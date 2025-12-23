@@ -98,12 +98,17 @@ function App() {
 
   const toggleBodyTypeFlag = (type: BodyType) => {
     const flag = BODY_TYPE_FLAG_MAP[type];
-    const nextVal = !state.physicalFlags[flag];
-    updateState({ physicalFlags: { ...state.physicalFlags, [flag]: nextVal } });
+    setState(prev => ({
+      ...prev,
+      physicalFlags: { ...prev.physicalFlags, [flag]: !prev.physicalFlags[flag] },
+    }));
   };
 
   const setPhysicalFlag = (flag: keyof FilterState['physicalFlags'], checked: boolean) => {
-    updateState({ physicalFlags: { ...state.physicalFlags, [flag]: checked } });
+    setState(prev => ({
+      ...prev,
+      physicalFlags: { ...prev.physicalFlags, [flag]: checked },
+    }));
   };
 
   const [sixPresetActive, setSixPresetActive] = useState(false);
@@ -118,6 +123,8 @@ function App() {
 
   const resetFilters = () => {
     setState(INITIAL_STATE);
+    setShowAdvanced(false);
+    setShowPhysicalDetails(false);
   };
 
   const applySixesPreset = () => {
@@ -125,12 +132,13 @@ function App() {
       resetFilters();
       return;
     }
-    updateState({
+    setState(prev => ({
+      ...prev,
       gender: 'Male',
-      heightRange: [Math.max(72, state.heightRange[0]), state.heightRange[1]],
-      incomeRange: [Math.max(100, state.incomeRange[0]), state.incomeRange[1]],
-      physicalFlags: { ...state.physicalFlags, abs: true },
-    });
+      heightRange: [Math.max(72, prev.heightRange[0]), prev.heightRange[1]],
+      incomeRange: [Math.max(100, prev.incomeRange[0]), prev.incomeRange[1]],
+      physicalFlags: { ...prev.physicalFlags, abs: true },
+    }));
     if (!showAdvanced) setShowAdvanced(true);
   };
 
