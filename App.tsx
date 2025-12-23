@@ -16,11 +16,10 @@ const formatHeight = (inches: number) => {
   return `${ft}'${inc}"`;
 };
 
-const BODY_TYPE_FLAG_MAP: Record<BodyType, keyof FilterState['physicalFlags']> = {
+const BODY_TYPE_FLAG_MAP: Partial<Record<BodyType, keyof FilterState['physicalFlags']>> = {
   Thin: 'thin',
   Fit: 'fit',
   Curvy: 'overweight',
-  Big: 'obese',
 };
 
 // Helper for labels
@@ -97,11 +96,25 @@ function App() {
   }, []);
 
   const toggleBodyTypeFlag = (type: BodyType) => {
-    const flag = BODY_TYPE_FLAG_MAP[type];
-    setState(prev => ({
-      ...prev,
-      physicalFlags: { ...prev.physicalFlags, [flag]: !prev.physicalFlags[flag] },
-    }));
+    setState(prev => {
+      if (type === 'Big' || (type === 'Curvy' && prev.gender === 'Female')) {
+        const bothOn = prev.physicalFlags.overweight && prev.physicalFlags.obese;
+        return {
+          ...prev,
+          physicalFlags: {
+            ...prev.physicalFlags,
+            overweight: !bothOn,
+            obese: !bothOn,
+          },
+        };
+      }
+      const flag = BODY_TYPE_FLAG_MAP[type];
+      if (!flag) return prev;
+      return {
+        ...prev,
+        physicalFlags: { ...prev.physicalFlags, [flag]: !prev.physicalFlags[flag] },
+      };
+    });
   };
 
   const setPhysicalFlag = (flag: keyof FilterState['physicalFlags'], checked: boolean) => {
@@ -117,9 +130,13 @@ function App() {
       state.gender === 'Male' &&
       state.heightRange[0] >= 72 &&
       state.incomeRange[0] >= 100 &&
-      state.physicalFlags.abs
+      state.physicalFlags.abs &&
+      state.physicalFlags.thin &&
+      state.physicalFlags.fit &&
+      state.physicalFlags.overweight &&
+      state.physicalFlags.obese
     );
-  }, [state.gender, state.heightRange, state.incomeRange, state.physicalFlags.abs]);
+  }, [state.gender, state.heightRange, state.incomeRange, state.physicalFlags]);
 
   const resetFilters = () => {
     setState(INITIAL_STATE);
@@ -137,7 +154,14 @@ function App() {
       gender: 'Male',
       heightRange: [Math.max(72, prev.heightRange[0]), prev.heightRange[1]],
       incomeRange: [Math.max(100, prev.incomeRange[0]), prev.incomeRange[1]],
-      physicalFlags: { ...prev.physicalFlags, abs: true },
+      physicalFlags: {
+        ...prev.physicalFlags,
+        thin: true,
+        fit: true,
+        overweight: true,
+        obese: true,
+        abs: true,
+      },
     }));
     if (!showAdvanced) setShowAdvanced(true);
   };
@@ -159,7 +183,13 @@ function App() {
   };
 
   const currentBodyTypes = state.gender === 'Female' ? BODY_TYPES_FEMALE : BODY_TYPES_MALE;
-  const isBodyTypeActive = (type: BodyType) => state.physicalFlags[BODY_TYPE_FLAG_MAP[type]];
+  const isBodyTypeActive = (type: BodyType) => {
+    if (type === 'Big' || (type === 'Curvy' && state.gender === 'Female')) {
+      return state.physicalFlags.overweight && state.physicalFlags.obese;
+    }
+    const flag = BODY_TYPE_FLAG_MAP[type];
+    return flag ? state.physicalFlags[flag] : false;
+  };
 
   const religionOptions = [
     { key: 'christian', label: 'Christian' },
@@ -464,26 +494,41 @@ function App() {
 
                     {showPhysicalDetails && (
                       <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-5">
-                        <div>
-                          <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Body Flags</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            {[
-                              { key: 'thin', label: 'Thin' },
-                              { key: 'fit', label: 'Fit' },
-                              { key: 'abs', label: 'Abs' },
-                              { key: 'overweight', label: 'Overweight' },
-                              { key: 'obese', label: 'Obese' },
-                            ].map(({ key, label }) => (
-                              <label key={key} className="flex items-center gap-2 text-sm text-slate-600">
-                                <input
-                                  type="checkbox"
-                                  checked={state.physicalFlags[key as keyof FilterState['physicalFlags']]}
-                                  onChange={(e) => setPhysicalFlag(key as keyof FilterState['physicalFlags'], e.target.checked)}
-                                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
-                                />
-                                {label}
-                              </label>
-                            ))}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Body Flags</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              {[
+                                { key: 'thin', label: 'Thin' },
+                                { key: 'fit', label: 'Fit' },
+                                { key: 'overweight', label: 'Overweight' },
+                                { key: 'obese', label: 'Obese' },
+                              ].map(({ key, label }) => (
+                                <label key={key} className="flex items-center gap-2 text-sm text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={state.physicalFlags[key as keyof FilterState['physicalFlags']]}
+                                    onChange={(e) => setPhysicalFlag(key as keyof FilterState['physicalFlags'], e.target.checked)}
+                                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
+                                  />
+                                  {label}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-2 bg-white border border-slate-200 rounded-lg p-3">
+                            <div className="mt-1">
+                              <input
+                                type="checkbox"
+                                checked={state.physicalFlags.abs}
+                                onChange={(e) => setPhysicalFlag('abs', e.target.checked)}
+                                className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
+                              />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-slate-700">Abs modifier</p>
+                              <p className="text-xs text-slate-500">Selecting this narrows results to people in the chosen weight categories who report visible abs.</p>
+                            </div>
                           </div>
                         </div>
 

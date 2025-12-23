@@ -3,7 +3,7 @@ import { FilterState } from '../types';
 import { MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from '../constants';
 import { runQuery } from '../services/duckDb';
 import { generateDuckDBQuery } from '../utils/sqlBuilder';
-import { Database, AlertCircle } from 'lucide-react';
+import { Database, AlertCircle, Loader2 } from 'lucide-react';
 
 interface ResultGaugeProps {
   filters: FilterState;
@@ -163,6 +163,7 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
 
   const hasCBSA = Boolean(filters.selectedCBSA);
   const colorClass = getColor(primaryMetrics.pct);
+  const showLoading = dbConnected && isAnimating;
   const formatPopulation = (value: number) =>
     new Intl.NumberFormat('en-US', { notation: "compact", compactDisplay: "short" }).format(value);
 
@@ -182,8 +183,13 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
            )}
         </div>
         
-        <div className={`transition-opacity duration-300 ${isAnimating ? 'opacity-50 blur-sm' : 'opacity-100'}`}>
-          {hasCBSA && nationalMetrics ? (
+        <div className={`transition-opacity duration-300 ${isAnimating ? 'opacity-70' : 'opacity-100'}`}>
+          {showLoading ? (
+            <div className="flex flex-col items-center justify-center py-8 text-slate-500">
+              <Loader2 size={40} className="animate-spin text-indigo-500" />
+              <p className="mt-3 text-sm font-semibold">Loading...</p>
+            </div>
+          ) : hasCBSA && nationalMetrics ? (
             <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 text-left">
               <div className="md:w-1/3">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">National Benchmark</p>
