@@ -308,7 +308,12 @@ function App() {
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         
         {/* Result Card */}
-        <ResultGauge filters={state} dbConnected={dbConnected} globalAvgWeight={datasetAvgWeight} />
+        <ResultGauge 
+          filters={state} 
+          dbConnected={dbConnected} 
+          globalAvgWeight={datasetAvgWeight} 
+          loading={loadingDb}
+        />
 
         {/* --- Primary Filters (Geo & Demographics) --- */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">

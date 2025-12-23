@@ -9,11 +9,12 @@ interface ResultGaugeProps {
   filters: FilterState;
   dbConnected: boolean;
   globalAvgWeight: number;
+  loading: boolean;
 }
 
 const TOTAL_ADULTS = 260_000_000;
 
-const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalAvgWeight }) => {
+const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalAvgWeight, loading }) => {
   const [primaryMetrics, setPrimaryMetrics] = useState({ pct: 100, population: 330_000_000 });
   const [nationalMetrics, setNationalMetrics] = useState<{ pct: number; population: number } | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -163,7 +164,7 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, globalA
 
   const hasCBSA = Boolean(filters.selectedCBSA);
   const colorClass = getColor(primaryMetrics.pct);
-  const showLoading = dbConnected && isAnimating;
+  const showLoading = (dbConnected && isAnimating) || (!dbConnected && loading && !error);
   const formatPopulation = (value: number) =>
     new Intl.NumberFormat('en-US', { notation: "compact", compactDisplay: "short" }).format(value);
 
