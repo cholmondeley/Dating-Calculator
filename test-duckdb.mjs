@@ -13,7 +13,7 @@ const JSDELIVR_BUNDLES = {
 
 const S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
 const BUCKET_NAME = 'dcalc';
-const PARQUET_FILE = 'synthetic_population_mvp_dec22.parquet';
+const PARQUET_FILE = 'synthetic_population_mvp.parquet';
 const S3_PATH = `s3://${BUCKET_NAME}/${PARQUET_FILE}`;
 
 async function main() {
