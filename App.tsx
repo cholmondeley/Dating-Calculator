@@ -106,7 +106,25 @@ function App() {
     updateState({ physicalFlags: { ...state.physicalFlags, [flag]: checked } });
   };
 
+  const [sixPresetActive, setSixPresetActive] = useState(false);
+  useEffect(() => {
+    setSixPresetActive(
+      state.gender === 'Male' &&
+      state.heightRange[0] >= 72 &&
+      state.incomeRange[0] >= 100 &&
+      state.physicalFlags.abs
+    );
+  }, [state.gender, state.heightRange, state.incomeRange, state.physicalFlags.abs]);
+
+  const resetFilters = () => {
+    setState(INITIAL_STATE);
+  };
+
   const applySixesPreset = () => {
+    if (sixPresetActive) {
+      resetFilters();
+      return;
+    }
     updateState({
       gender: 'Male',
       heightRange: [Math.max(72, state.heightRange[0]), state.heightRange[1]],
@@ -397,17 +415,11 @@ function App() {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between mb-1">
                       <label className="text-sm font-semibold text-slate-700">Body Type</label>
-                      <button
-                        type="button"
-                        onClick={applySixesPreset}
-                        className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100 transition-colors"
-                      >
-                        6′ / $100K / 6-Pack
-                      </button>
+                      <span className="text-[10px] font-semibold uppercase text-slate-400">Preset</span>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 items-center">
                       {currentBodyTypes.map(type => (
                         <button
                           key={type}
@@ -421,6 +433,17 @@ function App() {
                           {type}
                         </button>
                       ))}
+                      <button
+                        type="button"
+                        onClick={applySixesPreset}
+                        className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
+                          sixPresetActive
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                            : 'bg-white border-slate-200 text-indigo-600 hover:border-indigo-300'
+                        }`}
+                      >
+                        Show me the 6 feet, 6 figures, 6 pack men!
+                      </button>
                     </div>
                     <button
                       type="button"
