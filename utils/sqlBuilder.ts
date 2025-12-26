@@ -67,12 +67,15 @@ export const generateDuckDBQuery = (filters: FilterState): string => {
   // Physical Flags
   const { physicalFlags } = filters;
   const bodyTypeFlags: Array<keyof FilterState['physicalFlags']> = ['thin', 'fit', 'overweight', 'obese'];
-  const enabledBodyFlags = bodyTypeFlags.filter(flag => physicalFlags[flag]);
-
-  if (enabledBodyFlags.length === 0) {
+  const allBodyFlagsOff = bodyTypeFlags.every(flag => !physicalFlags[flag]);
+  if (allBodyFlagsOff) {
     whereClauses.push('1=0');
-  } else if (enabledBodyFlags.length < bodyTypeFlags.length) {
-    whereClauses.push(`(${enabledBodyFlags.map(flag => `${flag} = TRUE`).join(' OR ')})`);
+  } else {
+    bodyTypeFlags.forEach(flag => {
+      if (!physicalFlags[flag]) {
+        whereClauses.push(`${flag} = FALSE`);
+      }
+    });
   }
 
   if (physicalFlags.abs) {
