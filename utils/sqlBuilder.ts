@@ -1,5 +1,5 @@
 import { FilterState } from '../types';
-import { US_STATES, DUCKDB_DATASET_FILE, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from '../constants';
+import { US_STATES, DUCKDB_DATASET_FILE, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM, EDUCATION_NO_DEGREE_CODES, EDUCATION_COLLEGE_CODES, EDUCATION_GRAD_CODES } from '../constants';
 
 export const S3_PATH = DUCKDB_DATASET_FILE;
 
@@ -44,10 +44,10 @@ export const generateDuckDBQuery = (filters: FilterState): string => {
   // Education
   const allEduSelected = filters.education.noDegree && filters.education.college && filters.education.gradDegree;
   if (!allEduSelected) {
-    const mappedEdu = [];
-    if (filters.education.noDegree) mappedEdu.push(1); 
-    if (filters.education.college) mappedEdu.push(2);  
-    if (filters.education.gradDegree) mappedEdu.push(3); 
+    let mappedEdu: number[] = [];
+    if (filters.education.noDegree) mappedEdu = mappedEdu.concat(EDUCATION_NO_DEGREE_CODES);
+    if (filters.education.college) mappedEdu = mappedEdu.concat(EDUCATION_COLLEGE_CODES);
+    if (filters.education.gradDegree) mappedEdu = mappedEdu.concat(EDUCATION_GRAD_CODES);
     
     if (mappedEdu.length > 0) {
       whereClauses.push(`educ IN (${mappedEdu.join(', ')})`);
