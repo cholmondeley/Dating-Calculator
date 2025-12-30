@@ -8,11 +8,9 @@ export const MIN_WAIST = 22;
 export const MAX_WAIST = 90;
 export const MIN_RFM = 10;
 export const MAX_RFM = 65;
-export const EDUCATION_NO_DEGREE_CODES = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-];
-export const EDUCATION_COLLEGE_CODES = [21];
-export const EDUCATION_GRAD_CODES = [22, 23, 24];
+export const EDUCATION_NO_DEGREE_CODES = [1, 2, 3, 4];
+export const EDUCATION_COLLEGE_CODES = [5];
+export const EDUCATION_GRAD_CODES = [6];
 
 export const US_STATES = [
   { abbr: "US", name: "National", fips: 0 },
