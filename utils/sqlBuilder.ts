@@ -150,3 +150,7 @@ FROM ${DATA_SOURCE}
 WHERE
   ${where.join('\n  AND ')}`;
 };
+
+/** Weighted count only (no distinct-person count): cheap enough to re-run once per active filter chip. */
+export const generateWeightQuery = (filters: FilterState): string =>
+  `SELECT sum(${weightExpr(filters)})::DOUBLE as weighted_population FROM ${DATA_SOURCE} WHERE ${buildWhere(filters).join(' AND ')}`;

@@ -110,7 +110,7 @@ export const INITIAL_STATE: FilterState = {
     college: true,
     gradDegree: true,
   },
-  heightRange: [66, 90], // Default for Male: 5'6" to 7'6"
+  heightRange: [48, 90], // everyone (4'0" to 7'6"); a hidden height floor silently shrank the pool
   physicalFlags: {
     thin: true,
     healthy_weight: true,
