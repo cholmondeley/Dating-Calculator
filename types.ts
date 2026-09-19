@@ -1,43 +1,50 @@
-import { POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from "./constants";
+import { POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS, MIN_WAIST, MAX_WAIST, MIN_WHR, MAX_WHR, MIN_FAT, MAX_FAT } from "./constants";
 
 export type Gender = 'Male' | 'Female';
 
-export type BodyTypeFemale = 'Thin' | 'Fit' | 'Curvy';
-export type BodyTypeMale = 'Thin' | 'Fit' | 'Big';
-export type BodyType = BodyTypeFemale | BodyTypeMale;
+export type BodyType = 'Thin' | 'Healthy weight' | 'Fit' | 'Overweight' | 'Obese';
+export type BodyFlag = 'thin' | 'healthy_weight' | 'fit' | 'overweight' | 'obese';
+export const BODY_TYPE_FLAG: Record<BodyType, BodyFlag> = {
+  'Thin': 'thin', 'Healthy weight': 'healthy_weight', 'Fit': 'fit', 'Overweight': 'overweight', 'Obese': 'obese',
+};
 
 export type PoliticalView = 'Conservative' | 'Moderate' | 'Liberal' | 'Apolitical';
+export type AbsMode = 'off' | 'visible' | 'strict';
+export type Relationship = 'single' | 'unmarried' | 'any';     // single = not married AND not cohabiting
+export type Finance = 'any' | 'core' | 'high';
+export type WaistMode = 'natural' | 'nhanes';
 
 export interface FilterState {
   // Geo
   selectedState: string;
   selectedCBSA: string; // Using CBSA Code
-  
+
   // Demographics
   gender: Gender;
   ageRange: [number, number];
-  
-  // Advanced - Socioeconomic
+
+  // Socioeconomic
   incomeRange: [number, number]; // Annual income in thousands
+  netWorthMin: number;           // dollars; 0 = any
+  finance: Finance;
+  trustFund: boolean;            // expected-value filter (probability per row)
   education: {
     noDegree: boolean;
     college: boolean;
     gradDegree: boolean;
   };
 
-  // Advanced - Physical
+  // Physical
   heightRange: [number, number]; // Inches
-  physicalFlags: {
-    thin: boolean;
-    fit: boolean;
-    abs: boolean;
-    overweight: boolean;
-    obese: boolean;
-  };
+  physicalFlags: Record<BodyFlag, boolean>;
+  absMode: AbsMode;
+  waistMode: WaistMode;
   waistRange: [number, number];
-  rfmRange: [number, number];
+  whrRange: [number, number];    // women only
+  fatRange: [number, number];
+  blueEyes: boolean;             // expected-value filter (probability per row)
 
-  // Advanced - Background
+  // Background
   race: {
     white: boolean;
     black: boolean;
@@ -45,8 +52,8 @@ export interface FilterState {
     hispanic: boolean;
     other: boolean;
   };
-  
-  // Advanced - Lifestyle
+
+  // Lifestyle
   smoking: {
     nonSmoker: boolean;
     smoker: boolean;
@@ -55,11 +62,11 @@ export interface FilterState {
     nonDrinker: boolean;
     drinker: boolean;
   };
-  
+
   // Dealbreakers
   excludePeopleWithKids: boolean;
-  includeMarried: boolean; // New field for MAR status
-  
+  relationship: Relationship;
+
   // View Modes
   politicsView: 'broad' | 'detailed';
   religionView: 'broad' | 'detailed';
@@ -68,12 +75,17 @@ export interface FilterState {
   politicsDetailed: string[];
   religionDetailed: string[];
 
-  // Broad Selections (Legacy/Simple)
+  // Broad Selections
   politics: {
     conservative: boolean;
     moderate: boolean;
     liberal: boolean;
     apolitical: boolean;
+  };
+  party: {
+    democrat: boolean;
+    republican: boolean;
+    independent: boolean;
   };
 
   religion: {
@@ -89,7 +101,10 @@ export const INITIAL_STATE: FilterState = {
   selectedCBSA: '',
   gender: 'Male',
   ageRange: [18, 35], // Changed default to 18-35
-  incomeRange: [0, 500],
+  incomeRange: [0, 1000],
+  netWorthMin: 0,
+  finance: 'any',
+  trustFund: false,
   education: {
     noDegree: true,
     college: true,
@@ -98,13 +113,17 @@ export const INITIAL_STATE: FilterState = {
   heightRange: [66, 90], // Default for Male: 5'6" to 7'6"
   physicalFlags: {
     thin: true,
+    healthy_weight: true,
     fit: true,
-    abs: false,
     overweight: true,
     obese: true,
   },
+  absMode: 'off',
+  waistMode: 'natural',
   waistRange: [MIN_WAIST, MAX_WAIST],
-  rfmRange: [MIN_RFM, MAX_RFM],
+  whrRange: [MIN_WHR, MAX_WHR],
+  fatRange: [MIN_FAT, MAX_FAT],
+  blueEyes: false,
   race: {
     white: true,
     black: true,
@@ -121,7 +140,7 @@ export const INITIAL_STATE: FilterState = {
     drinker: true,
   },
   excludePeopleWithKids: true, // Default to true per request
-  includeMarried: false, // Default to excluding married people
+  relationship: 'single',  // not married and not cohabiting
   
   politicsView: 'broad',
   religionView: 'broad',
@@ -133,6 +152,11 @@ export const INITIAL_STATE: FilterState = {
     moderate: true,
     liberal: true,
     apolitical: true,
+  },
+  party: {
+    democrat: true,
+    republican: true,
+    independent: true,
   },
   religion: {
     christian: true,

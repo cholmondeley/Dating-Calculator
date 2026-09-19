@@ -1,7 +1,7 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 import { DUCKDB_DATASET_FILE, DUCKDB_REMOTE_URL } from '../constants';
 
-const REQUIRED_EXTENSIONS = ['httpfs', 'parquet'] as const;
+const REQUIRED_EXTENSIONS = ['parquet'] as const;
 const DUCKDB_VERSION_FALLBACK = 'v1.3.2';
 
 const getBasePath = () => (import.meta.env.BASE_URL ?? '/').replace(/\/$/, '');
@@ -34,9 +34,12 @@ const LOCAL_BUNDLES = {
     },
 };
 
-const PARQUET_FILE = DUCKDB_DATASET_FILE;
 const PARQUET_URL = DUCKDB_REMOTE_URL;
-export const S3_PATH = PARQUET_FILE;
+// The parquet is downloaded once and handed to DuckDB as an in-memory file. DuckDB-WASM's HTTP reads are
+// synchronous, one small range at a time (~250 ms each from far away), so range-reading a query cost 5-20 s;
+// the ~94 MB file downloads in seconds and then every query is local.
+export const DATA_SOURCE = `'${DUCKDB_DATASET_FILE}'`;
+const CACHE_NAME = 'dcalc-data';   // the file name carries the version, so a new file is a new cache entry
 
 type BundleFlavor = 'wasm_eh' | 'wasm_mvp';
 
@@ -84,15 +87,71 @@ const configureExtensions = async (flavor: BundleFlavor) => {
     }
 };
 
-export const initAndConnect = async () => {
-    if (dbInstance) return;
+// One shared init: callers (and React StrictMode's double-run effects in dev) must not race to build two
+// instances, which leaves the connection pointing at an instance where the parquet was never registered.
+let initPromise: Promise<void> | null = null;
+export const initAndConnect = (onProgress?: LoadProgress) => {
+    if (!initPromise) {
+        initPromise = doInit(onProgress).catch(err => { initPromise = null; dbInstance = null; connInstance = null; throw err; });
+    }
+    return initPromise;
+};
 
-    // Select the best bundle for the browser
+export type LoadProgress = (loadedBytes: number, totalBytes: number) => void;
+
+/** The parquet bytes: from Cache Storage when this version was fetched before, else downloaded (with progress). */
+const fetchDataset = async (onProgress?: LoadProgress): Promise<Uint8Array> => {
+    let cache: Cache | null = null;
+    try {
+        cache = await caches.open(CACHE_NAME);
+        const hit = await cache.match(PARQUET_URL);
+        if (hit) {
+            const buf = new Uint8Array(await hit.arrayBuffer());
+            onProgress?.(buf.byteLength, buf.byteLength);
+            return buf;
+        }
+    } catch (err) {
+        console.warn('[DuckDB] Cache Storage unavailable; downloading without caching.', err);
+        cache = null;
+    }
+
+    const res = await fetch(PARQUET_URL);
+    if (!res.ok || !res.body) throw new Error(`Dataset download failed: ${res.status} ${res.statusText}`);
+    const total = Number(res.headers.get('Content-Length')) || 0;
+    const buf = new Uint8Array(total || 0);
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    const reader = res.body.getReader();
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (total && loaded + value.byteLength <= total) buf.set(value, loaded); else chunks.push(value);
+        loaded += value.byteLength;
+        onProgress?.(loaded, total || loaded);
+    }
+    const bytes = chunks.length ? new Uint8Array(await new Blob([buf.subarray(0, total), ...chunks] as BlobPart[]).arrayBuffer()) : buf;
+
+    if (cache) {
+        try {
+            // drop older versions, keep this one
+            for (const req of await cache.keys()) if (req.url !== PARQUET_URL) await cache.delete(req);
+            await cache.put(PARQUET_URL, new Response(bytes.slice(), { headers: { 'Content-Type': 'application/octet-stream' } }));
+        } catch (err) {
+            console.warn('[DuckDB] Could not cache the dataset (storage quota?).', err);
+        }
+    }
+    return bytes;
+};
+
+const doInit = async (onProgress?: LoadProgress) => {
     const bundle = await duckdb.selectBundle(LOCAL_BUNDLES);
     const bundleFlavor = getBundleFlavor(bundle);
-    
+
+    // start the download while the engine boots
+    const dataset = fetchDataset(onProgress);
+
     const worker = await duckdb.createWorker(bundle.mainWorker!);
-    const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.DEBUG);
+    const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING);
     const db = new duckdb.AsyncDuckDB(logger, worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
     await db.open({ allowUnsignedExtensions: true });
@@ -102,17 +161,13 @@ export const initAndConnect = async () => {
     connInstance = await dbInstance.connect();
     await configureExtensions(bundleFlavor);
 
-    console.log('[DuckDB] Running connectivity test query…');
-    // Register remote parquet so DuckDB can stream it via fetch
-    await dbInstance.registerFileURL(PARQUET_FILE, PARQUET_URL, duckdb.DuckDBDataProtocol.HTTP, true);
-
-    // Test connection by reading from the registered file
+    await dbInstance.registerFileBuffer(DUCKDB_DATASET_FILE, await dataset);
     try {
-        await connInstance.query(`SELECT count(*) FROM '${S3_PATH}'`);
-        console.log('[DuckDB] Connectivity test succeeded.');
+        await connInstance.query(`SELECT count(*) FROM ${DATA_SOURCE}`);
+        console.log('[DuckDB] Dataset ready.');
     } catch (e) {
-        console.error("[DuckDB] S3 connection test failed:", e);
-        throw e; // Rethrow to be caught by the UI
+        console.error('[DuckDB] Dataset check failed:', e);
+        throw e;
     }
 };
 
@@ -130,45 +185,17 @@ export const runQuery = async (query: string) => {
 
 export const getDbSchema = async () => {
     if (!connInstance) return [];
-    const result = await connInstance.query(`DESCRIBE SELECT * FROM '${S3_PATH}'`);
+    const result = await connInstance.query(`DESCRIBE SELECT * FROM ${DATA_SOURCE}`);
     return result.toArray().map(row => row.toJSON());
 };
 
 export const getDbPreview = async () => {
     if (!connInstance) return [];
     // Limit to 5 rows to minimize data transfer on preview
-    const result = await connInstance.query(`SELECT * FROM '${S3_PATH}' LIMIT 5`);
+    const result = await connInstance.query(`SELECT * FROM ${DATA_SOURCE} LIMIT 5`);
     return result.toArray().map(row => row.toJSON());
 };
 
-export const getDistinctCBSAs = async () => {
-    if (!connInstance) return [];
-    // We aggregate population (PWGTP) per CBSA/State chunk.
-    const query = `
-        SELECT 
-            cbsa_id, 
-            cbsa_name, 
-            state as state_fips, 
-            SUM(PWGTP)::DOUBLE as pop
-        FROM '${S3_PATH}' 
-        WHERE cbsa_id IS NOT NULL 
-        GROUP BY cbsa_id, cbsa_name, state
-        ORDER BY pop DESC
-    `;
-    const result = await connInstance.query(query);
-    return result.toArray().map((row) => row.toJSON());
-};
 
-export const getAverageWeight = async () => {
-    if (!connInstance) return 0;
-    try {
-        const result = await connInstance.query(`SELECT sum(PWGTP)::DOUBLE / count(*)::DOUBLE as avg_val FROM '${S3_PATH}'`);
-        const row = result.toArray()[0].toJSON();
-        return Number(row.avg_val) || 0;
-    } catch (e) {
-        console.error("Failed to calculate average weight", e);
-        return 0;
-    }
-};
 
 export const isDbReady = () => !!dbInstance;

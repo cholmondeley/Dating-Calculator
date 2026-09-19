@@ -1,173 +1,152 @@
-import { FilterState } from '../types';
-import { US_STATES, DUCKDB_DATASET_FILE, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM, EDUCATION_NO_DEGREE_CODES, EDUCATION_COLLEGE_CODES, EDUCATION_GRAD_CODES } from '../constants';
+import { FilterState, BodyFlag } from '../types';
+import {
+  US_STATES, DUCKDB_DATASET_FILE, MIN_WAIST, MAX_WAIST, MIN_WHR, MAX_WHR, MIN_FAT, MAX_FAT, MAX_INCOME,
+  EDUCATION_NO_DEGREE_CODES, EDUCATION_COLLEGE_CODES, EDUCATION_GRAD_CODES, HIGH_FINANCE_EARNINGS,
+} from '../constants';
 
-export const S3_PATH = DUCKDB_DATASET_FILE;
+export { DATA_SOURCE } from '../services/duckDb';
+import { DATA_SOURCE } from '../services/duckDb';
 
-export const generateDuckDBQuery = (filters: FilterState): string => {
-  const whereClauses: string[] = [];
+const BODY_FLAGS: BodyFlag[] = ['thin', 'healthy_weight', 'fit', 'overweight', 'obese'];
 
-  // 1. Geography Logic
-  // Check if selectedCBSA is a non-empty string
+export const geoClause = (filters: FilterState): string => {
   if (filters.selectedCBSA && filters.selectedCBSA !== '') {
-    // Cast to ensure type compatibility if cbsa_id is numeric
-    whereClauses.push(`cbsa_id = ${filters.selectedCBSA}`);
-  } 
-  else if (filters.selectedState && filters.selectedState !== 'US') {
-    // Find FIPS code from constants
-    const stateObj = US_STATES.find(s => s.abbr === filters.selectedState);
-    if (stateObj && stateObj.fips) {
-      whereClauses.push(`state = ${stateObj.fips}`);
-    }
+    return `cbsa_id = ${Number(filters.selectedCBSA)}`;
   }
+  if (filters.selectedState && filters.selectedState !== 'US') {
+    const stateObj = US_STATES.find(s => s.abbr === filters.selectedState);
+    if (stateObj && stateObj.fips) return `state = ${stateObj.fips}`;
+  }
+  return '';
+};
+
+const inList = (col: string, values: (string | number)[]) =>
+  values.length ? `${col} IN (${values.map(v => (typeof v === 'number' ? v : `'${v}'`)).join(', ')})` : '1=0';
+
+/**
+ * Row weight for the query. Rows are replicate draws whose PWGTP already carries their share of the person;
+ * blue eyes and trust funds are stored as per-row probabilities (they are independent of everything else given
+ * ancestry / age), so those filters multiply the weight instead of selecting rows -- an exact expected count.
+ */
+export const weightExpr = (filters: FilterState): string => {
+  const parts = ['PWGTP'];
+  if (filters.blueEyes) parts.push('p_blue_eyes');
+  if (filters.trustFund) parts.push('p_trust_fund');
+  return parts.join(' * ');
+};
+
+export const buildWhere = (filters: FilterState): string[] => {
+  const w: string[] = [];
+
+  // 1. Geography
+  const geo = geoClause(filters);
+  if (geo) w.push(geo);
 
   // 2. Demographics
-  const sexCode = filters.gender === 'Male' ? 1 : 2;
-  whereClauses.push(`sex = ${sexCode}`);
-  
-  whereClauses.push(`age BETWEEN ${filters.ageRange[0]} AND ${filters.ageRange[1]}`);
+  w.push(`sex = ${filters.gender === 'Male' ? 1 : 2}`);
+  w.push(`age BETWEEN ${filters.ageRange[0]} AND ${filters.ageRange[1]}`);
+  if (filters.relationship === 'single') w.push('single');
+  else if (filters.relationship === 'unmarried') w.push('married != 1');
 
-  // MARITAL STATUS: 1 = Married. 
-  // If NOT including married people, exclude MAR=1
-  if (!filters.includeMarried) {
-    whereClauses.push(`married != 1`);
-  }
+  // 3. Money, work, education
+  const [incLo, incHi] = filters.incomeRange;
+  if (incLo > 0) w.push(`real_income >= ${incLo * 1000}`);
+  if (incHi < MAX_INCOME) w.push(`real_income <= ${incHi * 1000}`);
+  if (filters.netWorthMin > 0) w.push(`net_worth >= ${filters.netWorthMin}`);
+  if (filters.finance === 'core') w.push('fin_core');
+  if (filters.finance === 'high') w.push(`fin_core AND earnings >= ${HIGH_FINANCE_EARNINGS}`);
 
-  // 3. Socioeconomic
-  // Income - Handle NULLs. If range is wide open (starting at 0), include NULLs to avoid dropping people with missing income data.
-  // Otherwise, if user strictly wants > 50k, we assume they want KNOWN > 50k.
-  if (filters.incomeRange[0] === 0) {
-      whereClauses.push(`(real_income BETWEEN ${filters.incomeRange[0] * 1000} AND ${filters.incomeRange[1] * 1000} OR real_income IS NULL)`);
-  } else {
-      whereClauses.push(`real_income BETWEEN ${filters.incomeRange[0] * 1000} AND ${filters.incomeRange[1] * 1000}`);
-  }
-  
-  // Education
-  const allEduSelected = filters.education.noDegree && filters.education.college && filters.education.gradDegree;
-  if (!allEduSelected) {
-    let mappedEdu: number[] = [];
-    if (filters.education.noDegree) mappedEdu = mappedEdu.concat(EDUCATION_NO_DEGREE_CODES);
-    if (filters.education.college) mappedEdu = mappedEdu.concat(EDUCATION_COLLEGE_CODES);
-    if (filters.education.gradDegree) mappedEdu = mappedEdu.concat(EDUCATION_GRAD_CODES);
-    
-    if (mappedEdu.length > 0) {
-      whereClauses.push(`educ IN (${mappedEdu.join(', ')})`);
-    } else {
-      whereClauses.push("1=0");
-    }
+  const { noDegree, college, gradDegree } = filters.education;
+  if (!(noDegree && college && gradDegree)) {
+    const codes = [
+      ...(noDegree ? EDUCATION_NO_DEGREE_CODES : []),
+      ...(college ? EDUCATION_COLLEGE_CODES : []),
+      ...(gradDegree ? EDUCATION_GRAD_CODES : []),
+    ];
+    w.push(inList('educ', codes));
   }
 
-  // 4. Physical
-  // Height - Same logic as income. Include NULLs if range covers the minimum (48 inches / 4ft) to avoid accidental exclusion.
-  if (filters.heightRange[0] <= 48 && filters.heightRange[1] >= 96) {
-    whereClauses.push(`(height_inches BETWEEN ${filters.heightRange[0]} AND ${filters.heightRange[1]} OR height_inches IS NULL)`);
-  } else {
-    whereClauses.push(`height_inches BETWEEN ${filters.heightRange[0]} AND ${filters.heightRange[1]}`);
-  }
-  
-  // Physical Flags
-  const { physicalFlags } = filters;
-  const bodyTypeFlags: Array<keyof FilterState['physicalFlags']> = ['thin', 'fit', 'overweight', 'obese'];
-  const allBodyFlagsOff = bodyTypeFlags.every(flag => !physicalFlags[flag]);
-  if (allBodyFlagsOff) {
-    whereClauses.push('1=0');
-  } else {
-    bodyTypeFlags.forEach(flag => {
-      if (!physicalFlags[flag]) {
-        whereClauses.push(`${flag} = FALSE`);
-      }
-    });
-  }
+  // 4. Body
+  w.push(`height_inches BETWEEN ${filters.heightRange[0]} AND ${filters.heightRange[1]}`);
+  const onFlags = BODY_FLAGS.filter(f => filters.physicalFlags[f]);
+  if (onFlags.length === 0) w.push('1=0');
+  else if (onFlags.length < BODY_FLAGS.length) w.push(`(${onFlags.join(' OR ')})`);   // types partition everyone
+  if (filters.absMode === 'visible') w.push('abs');
+  if (filters.absMode === 'strict') w.push('abs_strict');
 
-  if (physicalFlags.abs) {
-    whereClauses.push('abs = TRUE');
+  const waistCol = filters.waistMode === 'natural' ? 'natural_waist' : 'waist_circumference';
+  if (filters.waistRange[0] > MIN_WAIST) w.push(`${waistCol} >= ${filters.waistRange[0]}`);
+  if (filters.waistRange[1] < MAX_WAIST) w.push(`${waistCol} <= ${filters.waistRange[1]}`);
+  if (filters.gender === 'Female') {
+    if (filters.whrRange[0] > MIN_WHR) w.push(`whr >= ${filters.whrRange[0]}`);
+    if (filters.whrRange[1] < MAX_WHR) w.push(`whr <= ${filters.whrRange[1]}`);
   }
-
-  if (filters.waistRange[0] > MIN_WAIST || filters.waistRange[1] < MAX_WAIST) {
-    whereClauses.push(`waist_circumference BETWEEN ${filters.waistRange[0]} AND ${filters.waistRange[1]}`);
-  }
-  if (filters.rfmRange[0] > MIN_RFM || filters.rfmRange[1] < MAX_RFM) {
-    whereClauses.push(`rfm BETWEEN ${filters.rfmRange[0]} AND ${filters.rfmRange[1]}`);
-  }
+  if (filters.fatRange[0] > MIN_FAT) w.push(`fat_pct >= ${filters.fatRange[0]}`);
+  if (filters.fatRange[1] < MAX_FAT) w.push(`fat_pct <= ${filters.fatRange[1]}`);
 
   // 5. Race
-  const allRacesSelected = Object.values(filters.race).every(Boolean);
-  if (!allRacesSelected) {
-    const raceMapped = [];
-    if (filters.race.white) raceMapped.push(1);
-    if (filters.race.black) raceMapped.push(2);
-    if (filters.race.asian) raceMapped.push(3);
-    if (filters.race.hispanic) raceMapped.push(4);
-    if (filters.race.other) raceMapped.push(5);
-    
-    if (raceMapped.length > 0) {
-      whereClauses.push(`race_mapped IN (${raceMapped.join(', ')})`);
-    } else {
-      whereClauses.push("1=0");
-    }
+  if (!Object.values(filters.race).every(Boolean)) {
+    const codes: number[] = [];
+    if (filters.race.white) codes.push(1);
+    if (filters.race.black) codes.push(2);
+    if (filters.race.asian) codes.push(3);
+    if (filters.race.hispanic) codes.push(4);
+    if (filters.race.other) codes.push(5);
+    w.push(inList('race_mapped', codes));
   }
 
-  // 6. Habits
-  if (!filters.smoking.smoker) whereClauses.push("is_smoker = 0");
-  if (!filters.drinking.drinker) whereClauses.push("drinks_per_day = 0");
+  // 6. Habits and kids
+  if (!filters.smoking.smoker) w.push('is_smoker = 0');
+  if (!filters.drinking.drinker) w.push('drinks_per_day = 0');
+  if (filters.excludePeopleWithKids) w.push('has_kids = 0');
 
-  // 7. Kids
-  if (filters.excludePeopleWithKids) whereClauses.push("has_kids = 0");
-
-  // 8. Politics
+  // 7. Politics
   if (filters.politicsView === 'broad') {
-    const allPoliticsSelected = Object.values(filters.politics).every(Boolean);
-    if (!allPoliticsSelected) {
-      const pols = [];
-      if (filters.politics.conservative) pols.push("'Conservative'");
-      if (filters.politics.moderate) pols.push("'Moderate'");
-      if (filters.politics.liberal) pols.push("'Liberal'");
-      if (filters.politics.apolitical) pols.push("'No_Ideology'"); // Corrected mapping from screenshot
-      
-      if (pols.length > 0) {
-         whereClauses.push(`politics_broad IN (${pols.join(', ')})`);
-      } else {
-         whereClauses.push("1=0");
-      }
+    if (!Object.values(filters.politics).every(Boolean)) {
+      const pols: string[] = [];
+      if (filters.politics.conservative) pols.push('Conservative');
+      if (filters.politics.moderate) pols.push('Moderate');
+      if (filters.politics.liberal) pols.push('Liberal');
+      if (filters.politics.apolitical) pols.push('No_Ideology');
+      w.push(inList('politics_broad', pols));
     }
   } else {
-    // Detailed Politics
-    if (filters.politicsDetailed.length > 0) {
-       const quoted = filters.politicsDetailed.map(p => `'${p}'`).join(', ');
-       whereClauses.push(`politics_detailed IN (${quoted})`);
-    } else {
-       whereClauses.push("1=0");
-    }
+    w.push(inList('politics_detailed', filters.politicsDetailed));
+  }
+  if (!Object.values(filters.party).every(Boolean)) {
+    const parties: string[] = [];
+    if (filters.party.democrat) parties.push('Democrat');
+    if (filters.party.republican) parties.push('Republican');
+    if (filters.party.independent) parties.push('Independent');
+    w.push(inList('party', parties));
   }
 
-  // 9. Religion
+  // 8. Religion
   if (filters.religionView === 'broad') {
-    const allReligionSelected = Object.values(filters.religion).every(Boolean);
-    if (!allReligionSelected) {
-      const rels = [];
-      if (filters.religion.christian) rels.push("'Christian'");
-      if (filters.religion.agnosticAtheist) rels.push("'Secular'"); // Corrected mapping from screenshot
-      if (filters.religion.spiritual) rels.push("'Spiritual'");
-      if (filters.religion.other) rels.push("'Other_Faith'"); // Corrected mapping from screenshot
-      
-      if (rels.length > 0) {
-        whereClauses.push(`religion_broad IN (${rels.join(', ')})`);
-      } else {
-         whereClauses.push("1=0");
-      }
+    if (!Object.values(filters.religion).every(Boolean)) {
+      const rels: string[] = [];
+      if (filters.religion.christian) rels.push('Christian');
+      if (filters.religion.agnosticAtheist) rels.push('Secular');
+      if (filters.religion.spiritual) rels.push('Spiritual');
+      if (filters.religion.other) rels.push('Other_Faith');
+      w.push(inList('religion_broad', rels));
     }
   } else {
-    // Detailed Religion
-    if (filters.religionDetailed.length > 0) {
-       const quoted = filters.religionDetailed.map(r => `'${r}'`).join(', ');
-       whereClauses.push(`religion_detailed IN (${quoted})`);
-    } else {
-       whereClauses.push("1=0");
-    }
+    w.push(inList('religion_detailed', filters.religionDetailed));
   }
 
-  const cbsaDenominator = filters.selectedCBSA
-    ? `,\n  (SELECT sum(PWGTP)::DOUBLE FROM '${S3_PATH}' WHERE cbsa_id = ${filters.selectedCBSA}) as total_cbsa_pop`
-    : '';
+  return w;
+};
 
-  return `SELECT \n  count(*)::DOUBLE as count, \n  sum(PWGTP)::DOUBLE as weighted_population${cbsaDenominator} \nFROM '${S3_PATH}' \nWHERE \n  ${whereClauses.join('\n  AND ')}`;
+export const generateDuckDBQuery = (filters: FilterState): string => {
+  const where = buildWhere(filters);
+  // The evidence behind an answer is the number of DISTINCT sampled people (each dating-pool person has 8
+  // replicate rows). The denominator (adults in the geography) comes from utils/geoTotals, not a full-file scan.
+  return `SELECT
+  count(DISTINCT person_id)::DOUBLE as people,
+  count(*)::DOUBLE as row_count,
+  sum(${weightExpr(filters)})::DOUBLE as weighted_population
+FROM ${DATA_SOURCE}
+WHERE
+  ${where.join('\n  AND ')}`;
 };

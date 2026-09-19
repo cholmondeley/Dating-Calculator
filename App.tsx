@@ -1,13 +1,14 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { INITIAL_STATE, FilterState, Gender, BodyType } from './types';
-import { US_STATES, CBSA_DATA, BODY_TYPES_FEMALE, BODY_TYPES_MALE, MIN_AGE, MAX_AGE, MIN_INCOME, MAX_INCOME, MIN_HEIGHT, MAX_HEIGHT, POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS, MIN_WAIST, MAX_WAIST, MIN_RFM, MAX_RFM } from './constants';
+import { INITIAL_STATE, FilterState, Gender, BodyType, BodyFlag, BODY_TYPE_FLAG, AbsMode, Relationship, Finance } from './types';
+import { US_STATES, CBSA_DATA, BODY_TYPES, MIN_AGE, MAX_AGE, MIN_INCOME, MAX_INCOME, MIN_HEIGHT, MAX_HEIGHT, POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS, MIN_WAIST, MAX_WAIST, MIN_WHR, MAX_WHR, MIN_FAT, MAX_FAT, NET_WORTH_STEPS } from './constants';
 import RangeSlider from './components/RangeSlider';
 import ResultGauge from './components/ResultGauge';
 import SearchableSelect from './components/SearchableSelect';
 import DataInspector from './components/DataInspector';
 import { generateDuckDBQuery } from './utils/sqlBuilder';
-import { initAndConnect, getDistinctCBSAs, getAverageWeight } from './services/duckDb';
-import { MapPin, Users, ChevronDown, ChevronUp, DollarSign, Ruler, Wine, Baby, Cigarette, Check, Database, Eye, Heart, Loader2, AlertTriangle } from 'lucide-react';
+import { initAndConnect } from './services/duckDb';
+import { CBSA_ROWS } from './utils/geoTotals';
+import { MapPin, Users, ChevronDown, ChevronUp, DollarSign, Ruler, Wine, Baby, Cigarette, Check, Database, Eye, Heart, Loader2, AlertTriangle, Link2 } from 'lucide-react';
 
 // Helper to format inches to Feet'Inches"
 const formatHeight = (inches: number) => {
@@ -16,11 +17,43 @@ const formatHeight = (inches: number) => {
   return `${ft}'${inc}"`;
 };
 
-const BODY_TYPE_FLAG_MAP: Partial<Record<BodyType, keyof FilterState['physicalFlags']>> = {
-  Thin: 'thin',
-  Fit: 'fit',
-  Curvy: 'overweight',
+const RELIGION_LABELS: Record<string, string> = {
+  Atheist_Agnostic: 'Atheist / Agnostic',
+  Spiritual_None: 'Nothing in particular',
+  Other_Faith: 'Other faith',
 };
+
+const formatMoney = (v: number) =>
+  v >= 1_000_000 ? `$${v / 1_000_000}M` : v >= 1000 ? `$${v / 1000}k` : `$${v}`;
+
+// Shareable links: the whole filter state rides in the URL hash (#f=<base64 JSON>).
+const encodeState = (s: FilterState) => btoa(unescape(encodeURIComponent(JSON.stringify(s))));
+const decodeState = (h: string): FilterState | null => {
+  try {
+    const m = h.match(/[#&]f=([^&]+)/);
+    if (!m) return null;
+    const parsed = JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+    return { ...INITIAL_STATE, ...parsed };
+  } catch {
+    return null;
+  }
+};
+
+// Segmented control used for small either/or choices.
+const Segmented = <T extends string>({ options, value, onChange }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void }) => (
+  <div className="flex bg-slate-100 rounded-lg p-0.5 flex-wrap">
+    {options.map(o => (
+      <button
+        key={o.value}
+        type="button"
+        onClick={() => onChange(o.value)}
+        className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${value === o.value ? 'bg-white shadow text-indigo-600' : 'text-slate-500 hover:text-slate-600'}`}
+      >
+        {o.label}
+      </button>
+    ))}
+  </div>
+);
 
 // Helper for labels
 const SectionHeader: React.FC<{ icon: React.ReactNode, title: string, isOpen?: boolean, onClick?: () => void, collapsible?: boolean }> = ({ icon, title, isOpen, onClick, collapsible }) => (
@@ -41,7 +74,22 @@ const SectionHeader: React.FC<{ icon: React.ReactNode, title: string, isOpen?: b
 );
 
 function App() {
-  const [state, setState] = useState<FilterState>(INITIAL_STATE);
+  const [state, setState] = useState<FilterState>(() => decodeState(window.location.hash) ?? INITIAL_STATE);
+  const [showWhr, setShowWhr] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // keep the URL in sync so any result can be linked
+  useEffect(() => {
+    const hash = `#f=${encodeState(state)}`;
+    if (window.location.hash !== hash) window.history.replaceState(null, '', hash);
+  }, [state]);
+
+  const copyLink = () => {
+    navigator.clipboard?.writeText(window.location.href).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [showPhysicalDetails, setShowPhysicalDetails] = useState(false);
@@ -50,34 +98,19 @@ function App() {
   const [dbConnected, setDbConnected] = useState(false);
   const [loadingDb, setLoadingDb] = useState(true); 
   const [dbError, setDbError] = useState<string | null>(null);
+  const [loadPct, setLoadPct] = useState<number | null>(null);   // dataset download progress
   const [showInspector, setShowInspector] = useState(false);
   
-  // Store raw CBSA rows: { cbsa_id, cbsa_name, state_fips, pop }
-  const [rawCBSAData, setRawCBSAData] = useState<any[]>([]);
-  const [datasetAvgWeight, setDatasetAvgWeight] = useState<number>(100); 
+  // Metro rows { cbsa_id, cbsa_name, state_fips, pop } are precomputed from the parquet (data/geoTotals.json)
+  const rawCBSAData = CBSA_ROWS;
 
   // Initialize DB and Load Data on Mount
   useEffect(() => {
     const initData = async () => {
       try {
-        console.log("Connecting to database...");
-        await initAndConnect();
+        await initAndConnect((loaded, total) => setLoadPct(total ? Math.floor((100 * loaded) / total) : null));
         setDbConnected(true);
         setDbError(null);
-        
-        // After connection, load metadata
-        getDistinctCBSAs().then(rows => {
-            if (rows && rows.length > 0) {
-                setRawCBSAData(rows);
-            }
-        });
-
-        getAverageWeight().then(avg => {
-            console.log("Dataset Average Weight:", avg);
-            if (avg > 0) {
-                setDatasetAvgWeight(avg);
-            }
-        });
 
       } catch (err: any) {
         console.error("Failed to load database:", err);
@@ -96,74 +129,56 @@ function App() {
   }, []);
 
   const toggleBodyTypeFlag = (type: BodyType) => {
-    setState(prev => {
-      if (type === 'Big' || (type === 'Curvy' && prev.gender === 'Female')) {
-        const bothOn = prev.physicalFlags.overweight && prev.physicalFlags.obese;
-        return {
-          ...prev,
-          physicalFlags: {
-            ...prev.physicalFlags,
-            overweight: !bothOn,
-            obese: !bothOn,
-          },
-        };
-      }
-      const flag = BODY_TYPE_FLAG_MAP[type];
-      if (!flag) return prev;
-      return {
-        ...prev,
-        physicalFlags: { ...prev.physicalFlags, [flag]: !prev.physicalFlags[flag] },
-      };
-    });
+    const flag = BODY_TYPE_FLAG[type];
+    setState(prev => ({ ...prev, physicalFlags: { ...prev.physicalFlags, [flag]: !prev.physicalFlags[flag] } }));
   };
 
-  const setPhysicalFlag = (flag: keyof FilterState['physicalFlags'], checked: boolean) => {
+  const setPhysicalFlag = (flag: BodyFlag, checked: boolean) => {
     setState(prev => ({
       ...prev,
       physicalFlags: { ...prev.physicalFlags, [flag]: checked },
     }));
   };
 
-  const [sixPresetActive, setSixPresetActive] = useState(false);
-  useEffect(() => {
-    setSixPresetActive(
-      state.gender === 'Male' &&
-      state.heightRange[0] >= 72 &&
-      state.incomeRange[0] >= 100 &&
-      state.physicalFlags.abs &&
-      state.physicalFlags.thin &&
-      state.physicalFlags.fit &&
-      state.physicalFlags.overweight &&
-      state.physicalFlags.obese
-    );
-  }, [state.gender, state.heightRange, state.incomeRange, state.physicalFlags]);
+  const allBodyTypes = { thin: true, healthy_weight: true, fit: true, overweight: true, obese: true };
+
+  const FINANCE_NOTE = "Finance here is the Census securities/investment industry plus finance roles in banking and insurance: it includes retail finance (wealth advisors, brokers, fund operations) nationwide, not just Wall Street, so only ~1 in 5 live in the NYC metro.";
+
+  // Presets reproduce the WHR follow-up post's definitions (single, 25-40 for men / 20-29 for women, no filters on kids).
+  const PRESETS: { key: string; label: string; state: Partial<FilterState> }[] = [
+    {
+      key: 'sixes', label: '6 feet, 6 figures, 6 pack',
+      state: { gender: 'Male', ageRange: [25, 40], relationship: 'single', excludePeopleWithKids: false,
+               heightRange: [72, MAX_HEIGHT], incomeRange: [100, MAX_INCOME], physicalFlags: allBodyTypes, absMode: 'strict' },
+    },
+    {
+      key: 'finance', label: 'Finance, trust fund, 6\'5", blue eyes',
+      state: { gender: 'Male', ageRange: [25, 40], relationship: 'single', excludePeopleWithKids: false,
+               heightRange: [77, MAX_HEIGHT], finance: 'core', trustFund: true, blueEyes: true, physicalFlags: allBodyTypes },
+    },
+    {
+      key: 'whr', label: 'Waist-to-hip 0.74 or lower',
+      state: { gender: 'Female', ageRange: [20, 29], relationship: 'single', excludePeopleWithKids: false,
+               heightRange: [MIN_HEIGHT, 78], whrRange: [MIN_WHR, 0.74], physicalFlags: allBodyTypes },
+    },
+  ];
+  const presetMatches = (ps: Partial<FilterState>) =>
+    Object.entries(ps).every(([k, v]) => JSON.stringify((state as any)[k]) === JSON.stringify(v));
+  const applyPreset = (ps: Partial<FilterState>, key: string) => {
+    if (presetMatches(ps)) {
+      resetFilters();
+      return;
+    }
+    setState({ ...INITIAL_STATE, ...ps });
+    setShowAdvanced(true);
+    if (key === 'whr') setShowWhr(true);
+  };
 
   const resetFilters = () => {
     setState(INITIAL_STATE);
     setShowAdvanced(false);
     setShowPhysicalDetails(false);
-  };
-
-  const applySixesPreset = () => {
-    if (sixPresetActive) {
-      resetFilters();
-      return;
-    }
-    setState(prev => ({
-      ...prev,
-      gender: 'Male',
-      heightRange: [Math.max(72, prev.heightRange[0]), prev.heightRange[1]],
-      incomeRange: [Math.max(100, prev.incomeRange[0]), prev.incomeRange[1]],
-      physicalFlags: {
-        ...prev.physicalFlags,
-        thin: true,
-        fit: true,
-        overweight: true,
-        obese: true,
-        abs: true,
-      },
-    }));
-    if (!showAdvanced) setShowAdvanced(true);
+    setShowWhr(false);
   };
 
   const togglePoliticsDetailed = (opt: string) => {
@@ -182,19 +197,12 @@ function App() {
     });
   };
 
-  const currentBodyTypes = state.gender === 'Female' ? BODY_TYPES_FEMALE : BODY_TYPES_MALE;
-  const isBodyTypeActive = (type: BodyType) => {
-    if (type === 'Big' || (type === 'Curvy' && state.gender === 'Female')) {
-      return state.physicalFlags.overweight && state.physicalFlags.obese;
-    }
-    const flag = BODY_TYPE_FLAG_MAP[type];
-    return flag ? state.physicalFlags[flag] : false;
-  };
+  const isBodyTypeActive = (type: BodyType) => state.physicalFlags[BODY_TYPE_FLAG[type]];
 
   const religionOptions = [
     { key: 'christian', label: 'Christian' },
     { key: 'agnosticAtheist', label: 'Agnostic / Atheist' },
-    { key: 'spiritual', label: 'Spiritual' },
+    { key: 'spiritual', label: 'Nothing in particular' },
     { key: 'other', label: 'Other' },
   ];
 
@@ -262,10 +270,17 @@ function App() {
           </div>
           
           <div className="flex items-center gap-3">
+             <button
+               onClick={copyLink}
+               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:border-indigo-300 hover:text-indigo-600"
+               title="Copy a link to exactly these filters"
+             >
+               <Link2 size={14} /> {copied ? 'Copied!' : 'Share'}
+             </button>
              {loadingDb ? (
                  <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-semibold border border-slate-200">
                     <Loader2 size={14} className="animate-spin" />
-                    Connecting...
+                    {loadPct === null ? 'Starting...' : loadPct < 100 ? `Loading data ${loadPct}%` : 'Preparing...'}
                  </div>
              ) : dbConnected ? (
                 <div className="flex items-center gap-2">
@@ -311,8 +326,8 @@ function App() {
         <ResultGauge 
           filters={state} 
           dbConnected={dbConnected} 
-          globalAvgWeight={datasetAvgWeight} 
           loading={loadingDb}
+          loadingLabel={loadPct === null ? 'Starting...' : loadPct < 100 ? `Loading data ${loadPct}% (first visit only)` : 'Preparing...'}
         />
 
         {/* --- Primary Filters (Geo & Demographics) --- */}
@@ -390,6 +405,30 @@ function App() {
                 onChange={(v) => updateState({ ageRange: v })} 
               />
             </div>
+
+            {/* Presets from the post */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Try a meme</label>
+              <div className="flex flex-wrap gap-2">
+                {PRESETS.map(p => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => applyPreset(p.state, p.key)}
+                    className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
+                      presetMatches(p.state)
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-white border-slate-200 text-indigo-600 hover:border-indigo-300'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {(state.finance !== 'any') && (
+                <p className="text-[11px] text-slate-400 mt-2">{FINANCE_NOTE}</p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -419,6 +458,48 @@ function App() {
                       formatLabel={(v) => v === MAX_INCOME ? `$${v}k+` : `$${v}k`}
                     />
                   </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Net worth at least</label>
+                      <select
+                        value={state.netWorthMin}
+                        onChange={(e) => updateState({ netWorthMin: Number(e.target.value) })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white"
+                      >
+                        {NET_WORTH_STEPS.map(v => (
+                          <option key={v} value={v}>{v === 0 ? 'Any' : `${formatMoney(v)}${v === NET_WORTH_STEPS[NET_WORTH_STEPS.length - 1] ? '+' : ''}`}</option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-slate-400 mt-1">Household net worth for married people; today's asset prices.</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Works in finance</label>
+                      <select
+                        value={state.finance}
+                        onChange={(e) => updateState({ finance: e.target.value as Finance })}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 bg-white"
+                      >
+                        <option value="any">Any job</option>
+                        <option value="core">Finance (investments, finance roles)</option>
+                        <option value="high">High finance (finance + $150k+)</option>
+                      </select>
+                      <p className="text-[11px] text-slate-400 mt-1">Includes retail finance; $150k+ is closer to Wall Street (~37% NYC + Stamford).</p>
+                    </div>
+                  </div>
+
+                  <label className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={state.trustFund}
+                      onChange={(e) => updateState({ trustFund: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 text-indigo-600 rounded border-slate-300"
+                    />
+                    <span className="text-sm text-slate-600">
+                      <span className="font-semibold text-slate-700">Trust fund</span>
+                      <span className="block text-xs text-slate-400">$100k+ inherited or gifted from family, or a family trust (SCF). Applied as a probability by age.</span>
+                    </span>
+                  </label>
                   
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-3">Education Required</label>
@@ -458,12 +539,9 @@ function App() {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-sm font-semibold text-slate-700">Body Type</label>
-                      <span className="text-[10px] font-semibold uppercase text-slate-400">Preset</span>
-                    </div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Body Type</label>
                     <div className="flex flex-wrap gap-2 items-center">
-                      {currentBodyTypes.map(type => (
+                      {BODY_TYPES.map(type => (
                         <button
                           key={type}
                           onClick={() => toggleBodyTypeFlag(type as BodyType)}
@@ -476,91 +554,92 @@ function App() {
                           {type}
                         </button>
                       ))}
-                      <button
-                        type="button"
-                        onClick={applySixesPreset}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold border transition-all ${
-                          sixPresetActive
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                            : 'bg-white border-slate-200 text-indigo-600 hover:border-indigo-300'
-                        }`}
-                      >
-                        Show me the 6 feet, 6 figures, 6 pack men!
-                      </button>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">Fit = lean and muscular (DXA body fat and muscle); the others are BMI bands (thin &lt;22, healthy 22-25, overweight 25-30, obese 30+).</p>
+
+                    <div className="mt-4">
+                      <label className="block text-sm font-semibold text-slate-700 mb-2">Abs</label>
+                      <Segmented<AbsMode>
+                        value={state.absMode}
+                        onChange={(v) => updateState({ absMode: v })}
+                        options={[
+                          { value: 'off', label: "Doesn't matter" },
+                          { value: 'visible', label: 'Visible abs' },
+                          ...(state.gender === 'Male' ? [{ value: 'strict' as AbsMode, label: 'Strict abs (<12% bf)' }] : []),
+                        ]}
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Visible: DXA body fat &le;{state.gender === 'Male' ? '20' : '24'}% with above-average muscle.
+                        {state.gender === 'Male' ? ' Strict: DXA \u226417% (about 10-13% on calipers).' : ''}
+                      </p>
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-sm font-semibold text-slate-700">Waist (inches)</label>
+                        <Segmented<'natural' | 'nhanes'>
+                          value={state.waistMode}
+                          onChange={(v) => updateState({ waistMode: v })}
+                          options={[{ value: 'natural', label: 'Natural waist' }, { value: 'nhanes', label: 'At the hip bone' }]}
+                        />
+                      </div>
+                      <RangeSlider
+                        min={MIN_WAIST}
+                        max={MAX_WAIST}
+                        value={state.waistRange}
+                        onChange={(v) => updateState({ waistRange: v })}
+                        formatLabel={(val) => `${val}"`}
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">Natural = narrowest point (what a tape at home or a dress size means). Hip bone = the medical survey's protocol, usually 2-3" larger.</p>
+                      {state.gender === 'Female' && (
+                        <div className="mt-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowWhr(v => !v)}
+                            className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                          >
+                            {showWhr ? 'Hide waist-to-hip ratio' : 'Waist-to-hip ratio'}
+                            {showWhr ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </button>
+                          {showWhr && (
+                            <div className="mt-2 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                              <RangeSlider
+                                min={MIN_WHR}
+                                max={MAX_WHR}
+                                step={0.01}
+                                value={state.whrRange}
+                                onChange={(v) => updateState({ whrRange: [Number(v[0].toFixed(2)), Number(v[1].toFixed(2))] })}
+                                formatLabel={(val) => val.toFixed(2)}
+                              />
+                              <p className="text-[11px] text-slate-400 mt-1">Measured at the hip bone and the widest point of the hips (NHANES).</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
                       onClick={() => setShowPhysicalDetails(prev => !prev)}
                       className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
                     >
-                      {showPhysicalDetails ? 'Hide detailed physical filters' : 'Detailed physical filters'}
+                      {showPhysicalDetails ? 'Hide body fat filter' : 'Body fat %'}
                       {showPhysicalDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </button>
 
                     {showPhysicalDetails && (
                       <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-5">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Body Flags</p>
-                            <div className="grid grid-cols-2 gap-3">
-                              {[
-                                { key: 'thin', label: 'Thin' },
-                                { key: 'fit', label: 'Fit' },
-                                { key: 'overweight', label: 'Overweight' },
-                                { key: 'obese', label: 'Obese' },
-                              ].map(({ key, label }) => (
-                                <label key={key} className="flex items-center gap-2 text-sm text-slate-600">
-                                  <input
-                                    type="checkbox"
-                                    checked={state.physicalFlags[key as keyof FilterState['physicalFlags']]}
-                                    onChange={(e) => setPhysicalFlag(key as keyof FilterState['physicalFlags'], e.target.checked)}
-                                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
-                                  />
-                                  {label}
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-2 bg-white border border-slate-200 rounded-lg p-3">
-                            <div className="mt-1">
-                              <input
-                                type="checkbox"
-                                checked={state.physicalFlags.abs}
-                                onChange={(e) => setPhysicalFlag('abs', e.target.checked)}
-                                className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
-                              />
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-slate-700">Abs modifier</p>
-                              <p className="text-xs text-slate-500">Selecting this narrows results to people in the chosen weight categories who report visible abs.</p>
-                            </div>
-                          </div>
-                        </div>
-
                         <div>
                           <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">
-                            Waist Circumference (inches)
+                            Body fat % (DXA scan)
                           </label>
                           <RangeSlider
-                            min={MIN_WAIST}
-                            max={MAX_WAIST}
-                            value={state.waistRange}
-                            onChange={(v) => updateState({ waistRange: v })}
-                            formatLabel={(val) => `${val}"`}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase mb-2">
-                            Relative Fat Mass (RFM)
-                          </label>
-                          <RangeSlider
-                            min={MIN_RFM}
-                            max={MAX_RFM}
-                            value={state.rfmRange}
-                            onChange={(v) => updateState({ rfmRange: v })}
+                            min={MIN_FAT}
+                            max={MAX_FAT}
+                            value={state.fatRange}
+                            onChange={(v) => updateState({ fatRange: v })}
                             formatLabel={(val) => `${val}%`}
                           />
+                          <p className="text-[11px] text-slate-400 mt-1">DXA reads several points higher than calipers or smart scales.</p>
                         </div>
                       </div>
                     )}
@@ -582,6 +661,19 @@ function App() {
                       ))}
                     </div>
                   </div>
+
+                  <label className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={state.blueEyes}
+                      onChange={(e) => updateState({ blueEyes: e.target.checked })}
+                      className="w-4 h-4 mt-0.5 text-indigo-600 rounded border-slate-300"
+                    />
+                    <span className="text-sm text-slate-600">
+                      <span className="font-semibold text-slate-700">Blue eyes</span>
+                      <span className="block text-xs text-slate-400">No US survey records eye colour: estimated by ancestry (about 30% of young white Americans, 7% Hispanic, ~1% Black or Asian). Applied as a probability.</span>
+                    </span>
+                  </label>
                </div>
             </div>
 
@@ -636,15 +728,18 @@ function App() {
                           />
                        </div>
 
-                       <div className="flex items-center justify-between p-3 bg-white border border-indigo-100 rounded-lg shadow-sm">
+                       <div className="p-3 bg-white border border-indigo-100 rounded-lg shadow-sm space-y-2">
                           <span className="text-sm text-slate-700 font-medium flex items-center gap-2">
-                             <Heart size={16} className="text-indigo-400"/> Include Married?
+                             <Heart size={16} className="text-indigo-400"/> Relationship status
                           </span>
-                          <input 
-                            type="checkbox"
-                            checked={state.includeMarried}
-                            onChange={(e) => updateState({ includeMarried: e.target.checked })}
-                            className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500 border-slate-300"
+                          <Segmented<Relationship>
+                            value={state.relationship}
+                            onChange={(v) => updateState({ relationship: v })}
+                            options={[
+                              { value: 'single', label: 'Single' },
+                              { value: 'unmarried', label: '+ living together' },
+                              { value: 'any', label: '+ married' },
+                            ]}
                           />
                        </div>
                     </div>
@@ -717,6 +812,30 @@ function App() {
                     )}
                   </div>
 
+                  {/* Party */}
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-3">Party (including leaners)</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([['democrat', 'Democrat'], ['republican', 'Republican'], ['independent', 'Independent']] as const).map(([key, label]) => {
+                        const isSelected = state.party[key];
+                        return (
+                          <button
+                            key={key}
+                            onClick={() => updateState({ party: { ...state.party, [key]: !isSelected } })}
+                            className={`flex items-center px-3 py-2 rounded-lg text-sm border font-medium transition-all ${
+                              isSelected ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white border-slate-200 text-slate-500 opacity-80 hover:opacity-100'
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded border mr-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-500 border-indigo-500' : 'bg-white border-slate-300'}`}>
+                              {isSelected && <Check size={12} className="text-white" />}
+                            </div>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Religion */}
                   <div>
                     <div className="flex items-center justify-between mb-3">
@@ -773,7 +892,7 @@ function App() {
                                          onChange={() => toggleReligionDetailed(opt)}
                                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500 border-slate-300"
                                        />
-                                       <span className={`text-xs font-medium ${isSelected ? 'text-indigo-700' : 'text-slate-600'}`}>{opt.replace('_', ' ')}</span>
+                                       <span className={`text-xs font-medium ${isSelected ? 'text-indigo-700' : 'text-slate-600'}`}>{RELIGION_LABELS[opt] ?? opt.replace('_', ' ')}</span>
                                    </label>
                                )
                            })}

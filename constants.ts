@@ -2,12 +2,26 @@
 
 export const DUCKDB_S3_ENDPOINT = 'sfo3.digitaloceanspaces.com';
 export const DUCKDB_BUCKET_NAME = 'dcalc';
-export const DUCKDB_DATASET_FILE = 'synthetic_population_mvp.parquet';
-export const DUCKDB_REMOTE_URL = `https://${DUCKDB_S3_ENDPOINT}/${DUCKDB_BUCKET_NAME}/${DUCKDB_DATASET_FILE}`;
-export const MIN_WAIST = 22;
-export const MAX_WAIST = 90;
-export const MIN_RFM = 10;
-export const MAX_RFM = 65;
+export const DUCKDB_DATASET_FILE = 'dcalc_app_v2.parquet';   // app copy: notebooks/dcalc_app_export.py
+// VITE_DATASET_URL overrides the Spaces copy (local dev serves public/data/). A path starting with "/" is
+// resolved against the page origin, because DuckDB-WASM fetches it from a worker.
+const DATASET_URL_OVERRIDE = (import.meta as any).env?.VITE_DATASET_URL as string | undefined;
+export const DUCKDB_REMOTE_URL = DATASET_URL_OVERRIDE
+  ? (DATASET_URL_OVERRIDE.startsWith('/') && typeof window !== 'undefined'
+      ? `${window.location.origin}${DATASET_URL_OVERRIDE}`
+      : DATASET_URL_OVERRIDE)
+  : `https://${DUCKDB_S3_ENDPOINT}/${DUCKDB_BUCKET_NAME}/${DUCKDB_DATASET_FILE}`;
+// waist in inches; natural (narrowest point) or NHANES protocol (top of the hip bone)
+export const MIN_WAIST = 16;
+export const MAX_WAIST = 70;
+export const MIN_WHR = 0.55;
+export const MAX_WHR = 1.1;
+// whole-body DXA fat %
+export const MIN_FAT = 3;
+export const MAX_FAT = 60;
+// net worth thresholds offered in the dropdown (dollars, "at least")
+export const NET_WORTH_STEPS = [0, 100_000, 250_000, 500_000, 1_000_000, 2_000_000, 5_000_000, 10_000_000];
+export const HIGH_FINANCE_EARNINGS = 150_000;
 export const EDUCATION_NO_DEGREE_CODES = [1, 2, 3, 4];
 export const EDUCATION_COLLEGE_CODES = [5];
 export const EDUCATION_GRAD_CODES = [6];
@@ -87,14 +101,13 @@ export const CBSA_DATA = [
   { id: "13820", name: "Birmingham-Hoover, AL", states: ["AL"] }
 ];
 
-export const BODY_TYPES_FEMALE = ['Thin', 'Fit', 'Curvy'];
-export const BODY_TYPES_MALE = ['Thin', 'Fit', 'Big'];
+export const BODY_TYPES = ['Thin', 'Healthy weight', 'Fit', 'Overweight', 'Obese'] as const;
 
 export const MIN_AGE = 18;
 export const MAX_AGE = 85;
 
 export const MIN_INCOME = 0;
-export const MAX_INCOME = 500; // k+
+export const MAX_INCOME = 1000; // k+ (top-codes repaired in the v2 data)
 
 export const MIN_HEIGHT = 48; // 4'0"
 export const MAX_HEIGHT = 90; // 7'6"
