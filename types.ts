@@ -43,6 +43,8 @@ export interface FilterState {
   whrRange: [number, number];    // women only
   fatRange: [number, number];
   blueEyes: boolean;             // expected-value filter (probability per row)
+  libidoMonthly: number | null;  // how often YOU want sex; null = not asked. Expected-value filter.
+  libidoDirection: 'atLeast' | 'atMost';   // does the match need to want it at least as often, or no more?
 
   // Background
   race: {
@@ -124,6 +126,8 @@ export const INITIAL_STATE: FilterState = {
   whrRange: [MIN_WHR, MAX_WHR],
   fatRange: [MIN_FAT, MAX_FAT],
   blueEyes: false,
+  libidoMonthly: null,
+  libidoDirection: 'atMost',   // the default view is 'looking for men', where wanting less is the scarce side
   race: {
     white: true,
     black: true,

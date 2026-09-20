@@ -1,4 +1,5 @@
 import { FilterState, BodyFlag } from '../types';
+import { libidoShare } from './libido';
 import {
   US_STATES, DUCKDB_DATASET_FILE, MIN_WAIST, MAX_WAIST, MIN_WHR, MAX_WHR, MIN_FAT, MAX_FAT, MAX_INCOME,
   EDUCATION_NO_DEGREE_CODES, EDUCATION_COLLEGE_CODES, EDUCATION_GRAD_CODES, HIGH_FINANCE_EARNINGS,
@@ -32,6 +33,8 @@ export const weightExpr = (filters: FilterState): string => {
   const parts = ['PWGTP'];
   if (filters.blueEyes) parts.push('p_blue_eyes');
   if (filters.trustFund) parts.push('p_trust_fund');
+  // libido match is a single probability for everyone in the pool, so it scales the whole weight
+  if (filters.libidoMonthly) parts.push(libidoShare(filters.gender, filters.libidoMonthly, filters.libidoDirection).toFixed(6));
   return parts.join(' * ');
 };
 

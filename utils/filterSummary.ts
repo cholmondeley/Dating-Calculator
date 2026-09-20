@@ -1,4 +1,5 @@
 import { FilterState, BodyFlag } from '../types';
+import { libidoShare, perWeek } from './libido';
 import {
   MIN_AGE, MAX_AGE, MIN_HEIGHT, MAX_HEIGHT, MAX_INCOME, MIN_WAIST, MAX_WAIST, MIN_WHR, MAX_WHR, MIN_FAT, MAX_FAT,
   POLITICS_DETAILED_OPTIONS, RELIGION_DETAILED_OPTIONS,
@@ -50,6 +51,11 @@ export const activeFilters = (s: FilterState): ActiveFilter[] => {
              clear: x => ({ ...x, relationship: 'any' }) });
   if (s.excludePeopleWithKids)
     f.push({ key: 'kids', group: 'basics', label: 'No kids', clear: x => ({ ...x, excludePeopleWithKids: false }) });
+
+  if (s.libidoMonthly)
+    f.push({ key: 'libido', group: 'basics',
+             label: `Libido: ${s.libidoDirection === 'atLeast' ? 'wants' : 'wants no more than'} ${perWeek(s.libidoMonthly)}`,
+             clear: x => ({ ...x, libidoMonthly: null }) });
 
   // details
   if (s.incomeRange[0] > 0 || s.incomeRange[1] < MAX_INCOME)

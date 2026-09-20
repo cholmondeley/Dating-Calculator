@@ -9,7 +9,8 @@ import { generateDuckDBQuery } from './utils/sqlBuilder';
 import { initAndConnect } from './services/duckDb';
 import { CBSA_ROWS } from './utils/geoTotals';
 import { countByGroup } from './utils/filterSummary';
-import { MapPin, Users, ChevronDown, ChevronUp, DollarSign, Ruler, Wine, Baby, Cigarette, Check, Database, Eye, Heart, Loader2, AlertTriangle, Link2, Sparkles, SlidersHorizontal } from 'lucide-react';
+import { libidoShare, libidoPercentile, perWeek, defaultDirection, LibidoDirection, WANT_MORE, MEDIAN_WANTED, MIN_LIBIDO, MAX_LIBIDO } from './utils/libido';
+import { MapPin, Users, ChevronDown, ChevronUp, DollarSign, Ruler, Wine, Baby, Cigarette, Check, Database, Eye, Heart, Loader2, AlertTriangle, Link2, Sparkles, SlidersHorizontal, Flame } from 'lucide-react';
 
 // Helper to format inches to Feet'Inches"
 const formatHeight = (inches: number) => {
@@ -22,6 +23,11 @@ const RELIGION_LABELS: Record<string, string> = {
   Atheist_Agnostic: 'Atheist / Agnostic',
   Spiritual_None: 'Nothing in particular',
   Other_Faith: 'Other faith',
+};
+
+const ordinal = (n: number) => {
+  const s = ['th', 'st', 'nd', 'rd'][(n % 100 - n % 10 !== 10 ? n % 10 : 0)] ?? 'th';
+  return `${n}${n % 10 > 3 || (n % 100 >= 11 && n % 100 <= 13) ? 'th' : s}`;
 };
 
 const formatMoney = (v: number) =>
@@ -94,9 +100,11 @@ function App() {
       window.setTimeout(() => setCopied(false), 1500);
     });
   };
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(() => countByGroup(decodeState(window.location.hash) ?? INITIAL_STATE).details > 0);
   const [showSql, setShowSql] = useState(false);
-  const [showMeme, setShowMeme] = useState(false);
+  const [showMeme, setShowMeme] = useState(() => countByGroup(decodeState(window.location.hash) ?? INITIAL_STATE).meme > 0);
+  const [showLibido, setShowLibido] = useState(() => Boolean((decodeState(window.location.hash) ?? INITIAL_STATE).libidoMonthly));
+  const [showLibidoHow, setShowLibidoHow] = useState(false);
   
   // DB State
   const [dbConnected, setDbConnected] = useState(false);
@@ -181,6 +189,7 @@ function App() {
 
   // Reset keeps where you are and who you're looking for; everything else goes back to the defaults
   const resetFilters = () => {
+    setShowLibidoHow(false);
     setState(prev => ({ ...INITIAL_STATE, selectedState: prev.selectedState, selectedCBSA: prev.selectedCBSA, gender: prev.gender }));
     setShowWhr(false);
   };
@@ -388,7 +397,7 @@ function App() {
                 {(['Male', 'Female'] as Gender[]).map((g) => (
                   <button
                     key={g}
-                    onClick={() => updateState({ gender: g })}
+                    onClick={() => updateState({ gender: g, libidoDirection: defaultDirection(g) })}
                     className={`py-3 rounded-xl text-base font-bold border-2 transition-all ${state.gender === g ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-300'}`}
                   >
                     {g === 'Male' ? 'Men' : 'Women'}
@@ -900,6 +909,154 @@ function App() {
                         </div>
                     </div>
                   
+            </div>
+          </div>
+        )}
+
+        {/* --- Libido match --- */}
+        <button
+          onClick={() => setShowLibido(!showLibido)}
+          className="w-full py-3 text-slate-600 font-semibold text-sm flex items-center justify-center gap-2 hover:text-indigo-600 transition-colors"
+        >
+          <Flame size={16} />
+          {showLibido ? 'Hide libido match' : <>Libido match<span className="hidden sm:inline">: how often do you want sex?</span></>}
+          {state.libidoMonthly ? <span className="ml-1 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-indigo-600 text-white text-[11px] font-bold">1</span> : null}
+          {showLibido ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+
+        {showLibido && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
+            <SectionHeader icon={<Flame />} title="Libido match" />
+            <div className="px-6 pb-8 space-y-5">
+              <p className="text-sm text-slate-600">
+                Nobody checks this before committing, and the gap is bigger than the one everyone argues about.
+                In Britain's national sex survey, <span className="font-semibold text-slate-700">{(WANT_MORE.men * 100).toFixed(0)}% of partnered
+                men aged 25-40 want more sex than they are having</span>, against {(WANT_MORE.women * 100).toFixed(0)}% of women - and it
+                barely improves at the top: a third of the men having sex 15+ times a month still want more.
+              </p>
+              <p className="text-sm text-slate-600">
+                Say how often you'd want it, and this counts the {state.gender === 'Male' ? 'men' : 'women'} who want about the same.
+                Which way the constraint runs depends on who's asking: men run short of partners who want it
+                <em> at least </em> as often, women of partners who want it <em> no more </em> often.
+              </p>
+
+              <label className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={state.libidoMonthly !== null}
+                  onChange={(e) => updateState({ libidoMonthly: e.target.checked ? 8.67 : null, libidoDirection: defaultDirection(state.gender) })}
+                  className="w-4 h-4 mt-0.5 text-indigo-600 rounded border-slate-300"
+                />
+                <span className="text-sm text-slate-600">
+                  <span className="font-semibold text-slate-700">Require a libido match</span>
+                  <span className="block text-xs text-slate-400">Applied as a probability, like eye colour: it scales the pool rather than picking rows.</span>
+                </span>
+              </label>
+
+              {state.libidoMonthly !== null && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <label className="text-sm font-semibold text-slate-700">How often you'd want sex</label>
+                      <span className="text-sm font-bold text-indigo-600">
+                        {perWeek(state.libidoMonthly)} ({state.libidoMonthly.toFixed(1)}/month)
+                      </span>
+                    </div>
+                    <RangeSlider
+                      single
+                      min={MIN_LIBIDO}
+                      max={MAX_LIBIDO}
+                      step={0.5}
+                      value={[state.libidoMonthly, MAX_LIBIDO]}
+                      onChange={(v) => updateState({ libidoMonthly: Number(v[0].toFixed(1)) })}
+                      formatLabel={(val) => `${val}/mo`}
+                      ticks={[[4.33, 'weekly'], [8.67, '2x/wk'], [13, '3x/wk'], [21.7, '5x/wk']]}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">You're looking for someone who…</label>
+                    <Segmented<LibidoDirection>
+                      value={state.libidoDirection}
+                      onChange={(v) => updateState({ libidoDirection: v })}
+                      options={[
+                        { value: 'atLeast', label: 'wants it at least as often' },
+                        { value: 'atMost', label: "won't want it more often" },
+                      ]}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-100">
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-indigo-400">That puts you at</div>
+                      <div className="text-2xl font-bold text-indigo-700">
+                        {ordinal(Math.round(libidoPercentile(state.gender, state.libidoMonthly) * 100))} percentile
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        of partnered {state.gender === 'Male' ? 'women' : 'men'} 25-40, by how often they say they <em>want</em> sex
+                        (the median is {state.gender === 'Male' ? MEDIAN_WANTED.women : MEDIAN_WANTED.men}/month)
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-100">
+                      <div className="text-[11px] font-bold uppercase tracking-wide text-rose-400">{state.libidoDirection === 'atLeast' ? 'Match or better' : "Won't want more"}</div>
+                      <div className="text-2xl font-bold text-rose-700">
+                        {(() => { const sh = libidoShare(state.gender, state.libidoMonthly!, state.libidoDirection); return sh >= 0.1 ? `${(sh * 100).toFixed(0)}%` : sh >= 0.01 ? `${(sh * 100).toFixed(1)}%` : `1 in ${Math.round(1 / sh)}`; })()}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        of {state.gender === 'Male' ? 'men' : 'women'} want it {state.libidoDirection === 'atLeast' ? 'at least that often' : 'no more often than that'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowLibidoHow(v => !v)}
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1"
+                  >
+                    {showLibidoHow ? 'Hide how this works' : 'How this works'}
+                    {showLibidoHow ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+
+                  {showLibidoHow && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4 text-sm text-slate-600">
+                      <p>
+                        <span className="font-semibold text-slate-700">Desire, compared with desire.</span> Britain's Natsal-3 survey
+                        asks partnered people both how many times they had sex in the last four weeks and whether they wanted more,
+                        the same, or less. That pins each person's wanted frequency between bounds, which gives a fitted distribution
+                        of what each sex actually wants - so your answer is compared with other people's answers to the same question,
+                        not with what couples end up doing.
+                      </p>
+                      <p>
+                        <span className="font-semibold text-slate-700">Why not just use frequency?</span> Because what couples do is a
+                        compromise, not a preference. {(WANT_MORE.men * 100).toFixed(0)}% of partnered men and
+                        {' '}{(WANT_MORE.women * 100).toFixed(0)}% of women want more than they get, so ranking a wish against achieved
+                        frequency makes everyone look more demanding than they are. The median man wants {MEDIAN_WANTED.men}/month, the
+                        median woman {MEDIAN_WANTED.women}/month.
+                      </p>
+                      <p>
+                        <span className="font-semibold text-slate-700">Two checks.</span> The fitted share of women wanting sex less than
+                        monthly is 12.4%; in US data (GSS), 12.0% of partnered women actually have it that rarely. And Natsal's achieved
+                        frequency looks like the American distribution, which is what makes the transfer defensible.
+                      </p>
+                      <p>
+                        The famous number below - Frankenbach's meta-analysis, g = 0.69 - measures sex <em>drive</em>, including
+                        masturbation and fantasy, where the sexes differ most. On desired frequency with a partner the gap is smaller
+                        (d = 0.3-0.5), so the calculator uses the frequency version, which is what it asks you about.
+                      </p>
+                      <img src={`${import.meta.env.BASE_URL}images/libido-frankenbach.png`} alt="Male and female sex drive distributions, Frankenbach 2022"
+                           className="w-full rounded-lg border border-slate-200 bg-white" loading="lazy" />
+                      <img src={`${import.meta.env.BASE_URL}images/libido-matching.png`} alt="GSS frequency distribution and the matching curve"
+                           className="w-full rounded-lg border border-slate-200 bg-white" loading="lazy" />
+                      <p className="text-xs text-slate-500">
+                        <span className="font-semibold">What this assumes.</span> Natsal is British, and the answers come from people
+                        already in relationships, so what they say they want is anchored by what is on offer. The size of "a bit more"
+                        has to be assumed: capping it at twice the achieved count gives a median man wanting 5.4/month, leaving it
+                        unbounded gives 12.7. The calculator ships the cautious version, so treat these as the low end.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -55,7 +55,7 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, loading
 
   const chips = useMemo(() => activeFilters(filters), [filters]);
   const men = filters.gender === 'Male';
-  const expected = filters.blueEyes || filters.trustFund;
+  const expected = filters.blueEyes || filters.trustFund || Boolean(filters.libidoMonthly);
 
   useEffect(() => {
     if (!dbConnected) return;
@@ -158,7 +158,7 @@ const ResultGauge: React.FC<ResultGaugeProps> = ({ filters, dbConnected, loading
             <div className={`mt-1 text-xs ${people < 20 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
               Based on {people.toLocaleString()} surveyed {noun(men, people)}
               {people < 20 ? ' - a rough estimate' : ''}
-              {expected ? ' · eye colour and trust fund applied as probabilities' : ''}
+              {expected ? ' · eye colour, trust fund and libido match applied as probabilities' : ''}
             </div>
           </>
         )}
